@@ -183,9 +183,7 @@ async def plan_review_node(state: FeatureState, ui: UI) -> dict:
             f"         [{unit.get('category', '?')}] {unit.get('blast_radius', '?')}"
         )
         if unit.get("pattern_reference"):
-            lines.append(
-                f"         [dim]pattern: {unit['pattern_reference']}[/dim]"
-            )
+            lines.append(f"         [dim]pattern: {unit['pattern_reference']}[/dim]")
 
     summary = "\n".join(lines)
 

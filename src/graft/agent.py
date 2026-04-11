@@ -44,8 +44,13 @@ async def run_agent(
     """
     if allowed_tools is None:
         allowed_tools = [
-            "Read", "Write", "Edit", "MultiEdit",
-            "Bash", "Glob", "Grep",
+            "Read",
+            "Write",
+            "Edit",
+            "MultiEdit",
+            "Bash",
+            "Glob",
+            "Grep",
         ]
 
     opts = {
@@ -96,7 +101,7 @@ async def run_agent(
 
         except (ConnectionError, TimeoutError, OSError) as exc:
             last_error = exc
-            delay = RETRY_BACKOFF_BASE ** attempt
+            delay = RETRY_BACKOFF_BASE**attempt
             ui.stage_log(
                 stage,
                 f"[yellow]Agent ({persona}) failed (attempt {attempt}/{MAX_RETRIES}): "

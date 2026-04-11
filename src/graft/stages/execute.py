@@ -86,7 +86,10 @@ def _run_tests(repo_path: str) -> tuple[bool, str]:
     try:
         result = subprocess.run(
             ["bash", "-c", VERIFY_SCRIPT],
-            cwd=repo_path, capture_output=True, text=True, timeout=300,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         output = (result.stdout + result.stderr).strip()
         return result.returncode == 0, output[-2000:]
@@ -106,7 +109,11 @@ def _run_lint(repo_path: str) -> tuple[bool, str]:
     ]:
         try:
             result = subprocess.run(
-                cmd, cwd=repo_path, capture_output=True, text=True, timeout=60,
+                cmd,
+                cwd=repo_path,
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             if result.returncode == 0:
                 return True, "Lint passed"
@@ -186,10 +193,12 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
         unmet = [d for d in deps if d not in completed_ids]
         if unmet:
             ui.unit_reverted(unit_id, f"Unmet dependencies: {', '.join(unmet)}")
-            units_skipped.append({
-                "unit_id": unit_id,
-                "reason": f"Dependencies not met: {', '.join(unmet)}",
-            })
+            units_skipped.append(
+                {
+                    "unit_id": unit_id,
+                    "reason": f"Dependencies not met: {', '.join(unmet)}",
+                }
+            )
             continue
 
         ui.unit_start(unit_id, title, i, len(ordered_plan))
@@ -234,7 +243,9 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
         # Commit
         _git(repo_path, "add", "-A")
         commit_result = _git(
-            repo_path, "commit", "-m",
+            repo_path,
+            "commit",
+            "-m",
             f"feat: {title}",
             check=False,
         )
@@ -248,10 +259,12 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
         if not tests_passed:
             _git(repo_path, "revert", "HEAD", "--no-edit")
             ui.unit_reverted(unit_id, "Tests failed")
-            units_reverted.append({
-                "unit_id": unit_id,
-                "reason": f"Tests failed: {test_output[:200]}",
-            })
+            units_reverted.append(
+                {
+                    "unit_id": unit_id,
+                    "reason": f"Tests failed: {test_output[:200]}",
+                }
+            )
             continue
 
         # Lint (auto-fix and amend if needed)
@@ -263,12 +276,14 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
 
         ui.unit_kept(unit_id, "Implemented and passing")
         completed_ids.add(unit_id)
-        units_completed.append({
-            "unit_id": unit_id,
-            "title": title,
-            "category": unit.get("category", ""),
-            "tests_included": tests_included,
-        })
+        units_completed.append(
+            {
+                "unit_id": unit_id,
+                "title": title,
+                "category": unit.get("category", ""),
+                "tests_included": tests_included,
+            }
+        )
 
     # Save execution log
     log = {

@@ -8,7 +8,9 @@ from pathlib import Path
 from uuid import uuid4
 
 
-def create_project(projects_root: Path, repo_path: str, feature_prompt: str) -> tuple[str, Path]:
+def create_project(
+    projects_root: Path, repo_path: str, feature_prompt: str
+) -> tuple[str, Path]:
     """Create a new feature project directory and return (project_id, project_dir)."""
     project_id = f"feat_{uuid4().hex[:8]}"
     project_dir = projects_root / project_id

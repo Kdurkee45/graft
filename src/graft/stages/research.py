@@ -159,13 +159,16 @@ async def research_node(state: FeatureState, ui: UI) -> dict:
             ui.error("Failed to parse technical_assessment.json from agent output.")
 
     save_artifact(
-        project_dir, "technical_assessment.json",
+        project_dir,
+        "technical_assessment.json",
         json.dumps(technical_assessment, indent=2),
     )
 
     open_questions = technical_assessment.get("open_questions", [])
     if open_questions:
-        ui.info(f"Research identified {len(open_questions)} open question(s) for the Grill phase.")
+        ui.info(
+            f"Research identified {len(open_questions)} open question(s) for the Grill phase."
+        )
 
     # Clean up
     for p in [

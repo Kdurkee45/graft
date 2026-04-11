@@ -147,15 +147,19 @@ async def discover_node(state: FeatureState, ui: UI) -> dict:
         f"Discover and map the codebase at: {repo_path}",
     ]
     if scope_path:
-        prompt_parts.append(f"\nSCOPE: Focus primarily on '{scope_path}/' but understand the full project context.")
+        prompt_parts.append(
+            f"\nSCOPE: Focus primarily on '{scope_path}/' but understand the full project context."
+        )
     if feature_prompt:
         prompt_parts.append(
-            f"\nUPCOMING FEATURE: \"{feature_prompt}\"\n"
+            f'\nUPCOMING FEATURE: "{feature_prompt}"\n'
             "Pay special attention to modules and patterns that this feature "
             "is likely to integrate with. Coverage warnings should prioritize "
             "these integration-critical modules."
         )
-    prompt_parts.append("\nProduce a comprehensive discovery report and codebase profile.")
+    prompt_parts.append(
+        "\nProduce a comprehensive discovery report and codebase profile."
+    )
 
     result = await run_agent(
         persona="Principal Codebase Archaeologist",
@@ -188,7 +192,9 @@ async def discover_node(state: FeatureState, ui: UI) -> dict:
         except json.JSONDecodeError:
             ui.error("Failed to parse codebase_profile.json from agent output.")
 
-    save_artifact(project_dir, "codebase_profile.json", json.dumps(codebase_profile, indent=2))
+    save_artifact(
+        project_dir, "codebase_profile.json", json.dumps(codebase_profile, indent=2)
+    )
 
     # Show coverage warnings if any
     coverage_warnings = codebase_profile.get("coverage_warnings", [])

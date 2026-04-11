@@ -69,16 +69,27 @@ def _open_pr(repo_path: str, branch: str, title: str, body: str) -> str | None:
     try:
         subprocess.run(
             ["git", "push", "-u", "origin", branch],
-            cwd=repo_path, capture_output=True, text=True, timeout=120, check=True,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
         )
         result = subprocess.run(
             ["gh", "pr", "create", "--title", title, "--body", body, "--head", branch],
-            cwd=repo_path, capture_output=True, text=True, timeout=60,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         if result.returncode == 0:
             return result.stdout.strip()
         return None
-    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError):
+    except (
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+        subprocess.CalledProcessError,
+    ):
         return None
 
 
@@ -136,12 +147,22 @@ async def verify_node(state: FeatureState, ui: UI) -> dict:
         # Stage any verification artifacts cleanup
         subprocess.run(
             ["git", "add", "-A"],
-            cwd=repo_path, capture_output=True, text=True,
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
         )
         # Only commit if there are changes
         subprocess.run(
-            ["git", "commit", "-m", "chore: cleanup verification artifacts", "--allow-empty"],
-            cwd=repo_path, capture_output=True, text=True,
+            [
+                "git",
+                "commit",
+                "-m",
+                "chore: cleanup verification artifacts",
+                "--allow-empty",
+            ],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
         )
 
         pr_title = f"Feature: {feature_name}"
@@ -154,9 +175,7 @@ async def verify_node(state: FeatureState, ui: UI) -> dict:
                 f"Could not open PR automatically. Push branch '{branch}' "
                 f"and open a PR manually."
             )
-            ui.info(
-                f"Report saved to: {project_dir}/artifacts/feature_report.md"
-            )
+            ui.info(f"Report saved to: {project_dir}/artifacts/feature_report.md")
 
     mark_stage_complete(project_dir, "verify")
     if pr_url:
