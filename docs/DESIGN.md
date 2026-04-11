@@ -628,29 +628,29 @@ class FeatureState(TypedDict, total=False):
 
 ```bash
 # Basic usage — build a feature into a local repo
-forge build ~/projects/my-app "Add a transfers system where managers can
+graft build ~/projects/my-app "Add a transfers system where managers can
 propose trades between teams, both sides accept/reject, respects roster
 limits and trade deadlines"
 
 # With monorepo scoping
-forge build ~/projects/my-company --path apps/web "Add dark mode toggle
+graft build ~/projects/my-company --path apps/web "Add dark mode toggle
 to the settings page"
 
 # With constraints
-forge build ~/projects/my-app "Add Stripe billing" --constraint "no new
+graft build ~/projects/my-app "Add Stripe billing" --constraint "no new
 dependencies" --constraint "must use existing auth middleware"
 
 # Limit scope
-forge build ~/projects/my-app "Add notifications" --max-units 8
+graft build ~/projects/my-app "Add notifications" --max-units 8
 
 # Auto-approve plan (still requires Grill + PR review)
-forge build ~/projects/my-app "Add search" --auto-approve
+graft build ~/projects/my-app "Add search" --auto-approve
 
 # Resume a previous session
-forge resume ~/.forge/projects/feat_XXXXX --from execute
+graft resume ~/.graft/projects/feat_XXXXX --from execute
 
 # List past sessions
-forge list
+graft list
 ```
 
 ---
@@ -709,34 +709,59 @@ mapping file paths. Not writing acceptance criteria. Just: "yes,"
 
 ## Open Questions
 
-1. **CLI name.** Current placeholder is `forge`. Alternatives: `feat`,
-   `ff`, `foundry`, `weave`. Should align with the "factory" metaphor
-   without colliding with existing tools.
+1. ~~**CLI name.**~~ **RESOLVED.** `graft` — the horticultural term for
+   attaching a new branch onto an existing tree. Perfect metaphor for
+   building new features into existing codebases. Short, memorable,
+   not taken by any major CLI tool.
 
-2. **Grill depth control.** Should there be a `--quick` flag that reduces
-   the Grill phase to 5-10 essential questions for simple features? Or
-   does thorough always win?
+2. ~~**Grill depth control.**~~ **RESOLVED.** No `--quick` flag. The Grill
+   agent self-regulates depth — it evaluates completeness after each
+   answer and wraps up when all decision branches are resolved. Simple
+   features naturally get fewer questions. Complex ones get more. When
+   in doubt, the agent goes deeper. You can always skip a question but
+   you can't recover from a missing one mid-build.
 
-3. **Multi-feature sessions.** Can you queue multiple features in one
-   session? ("Add transfers AND add notifications") Or should each
-   feature be its own pipeline run? Instinct says one feature per run —
-   keep it focused.
+3. ~~**Multi-feature sessions.**~~ **RESOLVED.** One feature per run.
+   Mixing features tangles the Grill phase, creates dependency chaos in
+   Execute, and produces unreviable PRs. One feature = one pipeline =
+   one PR = one clean review. Run `graft build` twice for two features.
 
-4. **Optimization Factory integration.** After a feature is built and
-   merged, should there be a natural handoff to run `hone optimize` on
-   the new code? The feature code won't be optimized — it'll be correct
-   and integrated but not necessarily the cleanest. A post-merge
-   optimization pass could be valuable.
+4. ~~**Optimization Factory integration.**~~ **RESOLVED.** Two-tier
+   approach. V1: Verify stage suggests the exact `hone optimize` command
+   scoped to the new feature's files at the end of the report. Explicit,
+   no friction, separate PR. V2: `--optimize` flag chains Graft into
+   Hone automatically — build the feature, merge the PR, then run an
+   optimization pass on the new code. Graft builds it right, Hone makes
+   it better. Complementary tools, clean separation.
 
-5. **Jira/project management output.** After the Plan is approved, should
-   the pipeline optionally generate Jira tickets (or GitHub issues) for
-   each build unit? This would provide traceability without requiring
-   Jira as an input. The tickets come OUT of the process, not into it.
+5. ~~**Jira/project management output.**~~ **RESOLVED.** Yes, optional.
+   `--issues` generates GitHub issues, `--jira` creates Jira tickets.
+   Each build unit becomes a ticket with acceptance criteria, pattern
+   reference, and dependency info pre-filled. The PR links back to them.
+   Tickets come OUT of the process as a byproduct of planning, not into
+   it as a prerequisite. Solo builders skip it. Teams get full
+   traceability for free.
 
-6. **Existing test suite quality.** What if the existing codebase has
-   poor test coverage? The Feature Factory relies on existing tests as
-   the safety net during Execute. If the safety net has holes, regressions
-   could slip through. Possible mitigation: run a quick coverage check
-   during Discover and warn if coverage is below a threshold. Could
-   even trigger a focused Optimization Factory run on the relevant
-   modules first.
+6. ~~**Existing test suite quality.**~~ **RESOLVED.** Discover measures
+   test coverage at the MODULE level, not project level — specifically
+   targeting the modules the feature will integrate with (identified via
+   the integration surface mapping). A blanket coverage percentage is
+   misleading; what matters is whether the specific code paths this
+   feature touches have meaningful tests.
+
+   If coverage on integration-critical modules is thin, Graft warns with
+   targeted context: "The roster validation module (src/services/roster.ts)
+   has 12% test coverage and your feature depends heavily on it. Changes
+   here have a high risk of undetected regressions." The suggestion is
+   equally scoped: `hone optimize --focus tests --path src/services/roster.ts`.
+
+   This is a warning, not a hard block — the human decides whether to
+   proceed with a thin safety net or shore it up first. The tools stay
+   composable: Graft builds features, Hone builds test coverage. Run
+   them separately, in whatever order makes sense.
+
+   The Verify stage also reports coverage delta on new feature code so
+   you can see whether the new code is well-tested even if legacy code
+   isn't. V2 consideration: mutation testing on new code during Verify
+   to check test quality, not just coverage — catches the "agent writes
+   tests for its own code and only tests the happy path" blind spot.
