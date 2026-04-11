@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
@@ -155,8 +154,8 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     plan = state.get("build_plan", [])
-    codebase_profile = state.get("codebase_profile", {})
-    feature_spec = state.get("feature_spec", {})
+    state.get("codebase_profile", {})
+    state.get("feature_spec", {})
     max_turns = state.get("max_agent_turns", 50)
 
     if not plan:
@@ -207,7 +206,7 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
         prompt_parts = [
             f"BUILD TASK: {title}",
             f"\nDESCRIPTION:\n{description}",
-            f"\nACCEPTANCE CRITERIA:",
+            "\nACCEPTANCE CRITERIA:",
             *[f"- {c}" for c in acceptance_criteria],
         ]
         if pattern_ref:
@@ -217,8 +216,8 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
             )
         if tests_included:
             prompt_parts.append(
-                f"\nTESTS: Write co-located tests for this unit. "
-                f"Follow the project's existing test patterns."
+                "\nTESTS: Write co-located tests for this unit. "
+                "Follow the project's existing test patterns."
             )
         prompt_parts.append(f"\nWORKING DIRECTORY: {repo_path}")
         prompt_parts.append("\nMake the change now. Be precise and surgical.")
