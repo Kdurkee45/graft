@@ -1,13 +1,6 @@
 """Tests for graft.state."""
 
-from graft.state import (
-    FeatureState,
-    _replace,
-    _replace_bool,
-    _replace_dict,
-    _replace_int,
-    _replace_list,
-)
+from graft.state import FeatureState, _replace, _replace_bool, _replace_dict, _replace_int, _replace_list
 
 
 def test_replace_takes_latest():
