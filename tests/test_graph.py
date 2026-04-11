@@ -7,7 +7,12 @@ from graft.ui import UI
 def test_ordered_stages():
     """Pipeline has 6 stages in correct order."""
     assert ORDERED_STAGES == [
-        "discover", "research", "grill", "plan", "execute", "verify"
+        "discover",
+        "research",
+        "grill",
+        "plan",
+        "execute",
+        "verify",
     ]
 
 

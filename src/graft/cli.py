@@ -24,12 +24,24 @@ app = typer.Typer(
 @app.command()
 def build(
     repo_path: str = typer.Argument(..., help="Path to the repository"),
-    feature_prompt: str = typer.Argument(..., help="Description of the feature to build"),
-    path: str = typer.Option("", "--path", "-p", help="Scope to a subdirectory (monorepo support)"),
-    constraint: list[str] = typer.Option([], "--constraint", "-c", help="Constraints (repeatable)"),
-    max_units: int = typer.Option(0, "--max-units", help="Max build units (0 = unlimited)"),
-    auto_approve: bool = typer.Option(False, "--auto-approve", help="Skip the plan review gate"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show agent message stream"),
+    feature_prompt: str = typer.Argument(
+        ..., help="Description of the feature to build"
+    ),
+    path: str = typer.Option(
+        "", "--path", "-p", help="Scope to a subdirectory (monorepo support)"
+    ),
+    constraint: list[str] = typer.Option(
+        [], "--constraint", "-c", help="Constraints (repeatable)"
+    ),
+    max_units: int = typer.Option(
+        0, "--max-units", help="Max build units (0 = unlimited)"
+    ),
+    auto_approve: bool = typer.Option(
+        False, "--auto-approve", help="Skip the plan review gate"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show agent message stream"
+    ),
 ) -> None:
     """Build a feature into an existing codebase."""
     settings = Settings.load()
@@ -105,10 +117,16 @@ def resume(
         ..., help="Path to the session directory (e.g. ~/.graft/projects/feat_XXXXX)"
     ),
     from_stage: str = typer.Option(
-        "execute", "--from", help="Stage to resume from: discover, research, grill, plan, execute, verify"
+        "execute",
+        "--from",
+        help="Stage to resume from: discover, research, grill, plan, execute, verify",
     ),
-    auto_approve: bool = typer.Option(False, "--auto-approve", help="Skip the plan review gate"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show agent message stream"),
+    auto_approve: bool = typer.Option(
+        False, "--auto-approve", help="Skip the plan review gate"
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Show agent message stream"
+    ),
 ) -> None:
     """Resume a feature session from a specific stage."""
     settings = Settings.load()
@@ -155,11 +173,13 @@ def resume(
         "max_units": 0,
         "auto_approve": auto_approve,
         "codebase_profile": codebase_profile,
-        "discovery_report": load_artifact(str(project_dir), "discovery_report.md") or "",
+        "discovery_report": load_artifact(str(project_dir), "discovery_report.md")
+        or "",
         "technical_assessment": technical_assessment,
         "research_report": load_artifact(str(project_dir), "research_report.md") or "",
         "feature_spec": feature_spec,
-        "grill_transcript": load_artifact(str(project_dir), "grill_transcript.md") or "",
+        "grill_transcript": load_artifact(str(project_dir), "grill_transcript.md")
+        or "",
         "build_plan": plan_data.get("units", []),
         "feature_report": "",
         "current_unit_index": 0,

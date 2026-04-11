@@ -39,7 +39,9 @@ class UI:
             pass
 
     def banner(self, repo_path: str, project_id: str, feature_prompt: str) -> None:
-        prompt_preview = feature_prompt[:120] + ("…" if len(feature_prompt) > 120 else "")
+        prompt_preview = feature_prompt[:120] + (
+            "…" if len(feature_prompt) > 120 else ""
+        )
         self._safe_print()
         self._safe_print(
             Panel(
@@ -124,8 +126,7 @@ class UI:
 
         if self.auto_approve:
             self._safe_print(
-                "[bold magenta]Plan review[/bold magenta] "
-                "[dim](auto-approved)[/dim]"
+                "[bold magenta]Plan review[/bold magenta] [dim](auto-approved)[/dim]"
             )
             return True, ""
 
@@ -143,9 +144,7 @@ class UI:
         return False, response
 
     def unit_start(self, unit_id: str, title: str, index: int, total: int) -> None:
-        self._safe_print(
-            f"  [cyan]({index}/{total})[/cyan] {unit_id}: {title}"
-        )
+        self._safe_print(f"  [cyan]({index}/{total})[/cyan] {unit_id}: {title}")
 
     def unit_kept(self, unit_id: str, delta: str) -> None:
         self._safe_print(f"    [green]✓ kept[/green] {delta}")
@@ -168,7 +167,9 @@ class UI:
 
     def coverage_warning(self, warnings: list[dict]) -> None:
         """Display module-level test coverage warnings."""
-        lines = ["[bold yellow]⚠ Low Test Coverage on Integration Modules[/bold yellow]\n"]
+        lines = [
+            "[bold yellow]⚠ Low Test Coverage on Integration Modules[/bold yellow]\n"
+        ]
         for w in warnings:
             lines.append(
                 f"  [red]{w['module']}[/red] — {w['coverage_pct']}% coverage\n"

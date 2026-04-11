@@ -82,10 +82,17 @@ async def grill_node(state: FeatureState, ui: UI) -> dict:
 
     # If Research didn't produce questions, generate them via agent
     if not open_questions:
-        ui.info("No open questions from Research — generating questions from context...")
+        ui.info(
+            "No open questions from Research — generating questions from context..."
+        )
         open_questions = await _generate_questions(
-            repo_path, project_dir, feature_prompt, codebase_profile,
-            technical_assessment, ui, state.get("model"),
+            repo_path,
+            project_dir,
+            feature_prompt,
+            codebase_profile,
+            technical_assessment,
+            ui,
+            state.get("model"),
         )
 
     # Walk through questions one at a time
@@ -94,7 +101,11 @@ async def grill_node(state: FeatureState, ui: UI) -> dict:
 
     for i, q in enumerate(open_questions, 1):
         question = q.get("question", q) if isinstance(q, dict) else str(q)
-        recommended = q.get("recommended_answer", "No recommendation") if isinstance(q, dict) else "No recommendation"
+        recommended = (
+            q.get("recommended_answer", "No recommendation")
+            if isinstance(q, dict)
+            else "No recommendation"
+        )
         category = q.get("category", "intent") if isinstance(q, dict) else "intent"
 
         answer = ui.grill_question(question, recommended, category, i)
@@ -104,12 +115,14 @@ async def grill_node(state: FeatureState, ui: UI) -> dict:
         transcript_lines.append(f"  Answer: {answer}")
         transcript_lines.append("")
 
-        decisions.append({
-            "question": question,
-            "recommended": recommended,
-            "answer": answer,
-            "category": category,
-        })
+        decisions.append(
+            {
+                "question": question,
+                "recommended": recommended,
+                "answer": answer,
+                "category": category,
+            }
+        )
 
     grill_transcript = "\n".join(transcript_lines)
     save_artifact(project_dir, "grill_transcript.md", grill_transcript)
@@ -158,7 +171,9 @@ async def grill_node(state: FeatureState, ui: UI) -> dict:
     # Check if Research needs a redo (rare — only if a fundamental assumption was wrong)
     research_redo = feature_spec.get("research_redo_needed", False)
     if research_redo:
-        ui.info("Grill revealed a fundamental assumption change — looping back to Research.")
+        ui.info(
+            "Grill revealed a fundamental assumption change — looping back to Research."
+        )
 
     mark_stage_complete(project_dir, "grill")
     ui.stage_done("grill")

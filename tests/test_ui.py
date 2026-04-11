@@ -5,7 +5,15 @@ from graft.ui import STAGE_LABELS, STAGE_ORDER, UI
 
 def test_stage_labels_match_pipeline():
     """Stage labels cover all pipeline stages."""
-    expected = {"discover", "research", "grill", "plan", "plan_review", "execute", "verify"}
+    expected = {
+        "discover",
+        "research",
+        "grill",
+        "plan",
+        "plan_review",
+        "execute",
+        "verify",
+    }
     assert set(STAGE_LABELS.keys()) == expected
 
 

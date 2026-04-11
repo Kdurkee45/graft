@@ -46,7 +46,9 @@ def test_find_env_file(tmp_path):
 
 def test_find_env_file_not_found(tmp_path):
     """_find_env_file() returns None when no .env exists."""
-    with patch("graft.config.Path.cwd", return_value=tmp_path), \
-         patch("graft.config.Path.home", return_value=tmp_path):
+    with (
+        patch("graft.config.Path.cwd", return_value=tmp_path),
+        patch("graft.config.Path.home", return_value=tmp_path),
+    ):
         result = _find_env_file()
         assert result is None
