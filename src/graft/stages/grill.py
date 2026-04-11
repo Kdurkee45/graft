@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 
 from graft.agent import run_agent
-from graft.artifacts import mark_stage_complete, save_artifact
+from graft.artifacts import load_artifact, mark_stage_complete, save_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
