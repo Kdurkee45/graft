@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, TypedDict
 
 
 def _replace(a: str, b: str) -> str:
@@ -18,11 +18,11 @@ def _replace_int(a: int, b: int) -> int:
     return b
 
 
-def _replace_list(a: list[Any], b: list[Any]) -> list[Any]:
+def _replace_list(a: list, b: list) -> list:
     return b
 
 
-def _replace_dict(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+def _replace_dict(a: dict, b: dict) -> dict:
     return b
 
 
@@ -40,20 +40,20 @@ class FeatureState(TypedDict, total=False):
     auto_approve: Annotated[bool, _replace_bool]
 
     # -- Stage artifacts
-    codebase_profile: Annotated[dict[str, Any], _replace_dict]
+    codebase_profile: Annotated[dict, _replace_dict]
     discovery_report: Annotated[str, _replace]
-    technical_assessment: Annotated[dict[str, Any], _replace_dict]
+    technical_assessment: Annotated[dict, _replace_dict]
     research_report: Annotated[str, _replace]
-    feature_spec: Annotated[dict[str, Any], _replace_dict]
+    feature_spec: Annotated[dict, _replace_dict]
     grill_transcript: Annotated[str, _replace]
-    build_plan: Annotated[list[dict[str, Any]], _replace_list]
+    build_plan: Annotated[list[dict], _replace_list]
     feature_report: Annotated[str, _replace]
 
     # -- Execution tracking
     current_unit_index: Annotated[int, _replace_int]
-    units_completed: Annotated[list[dict[str, Any]], _replace_list]
-    units_reverted: Annotated[list[dict[str, Any]], _replace_list]
-    units_skipped: Annotated[list[dict[str, Any]], _replace_list]
+    units_completed: Annotated[list[dict], _replace_list]
+    units_reverted: Annotated[list[dict], _replace_list]
+    units_skipped: Annotated[list[dict], _replace_list]
 
     # -- Gates
     plan_approved: Annotated[bool, _replace_bool]
