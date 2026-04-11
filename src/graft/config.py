@@ -44,21 +44,9 @@ class Settings:
                 "Add it to a .env file or export it in your shell."
             )
 
-        max_turns_raw = os.environ.get("GRAFT_MAX_TURNS", "50")
-        try:
-            max_turns = int(max_turns_raw)
-        except ValueError:
-            raise SystemExit(
-                f"GRAFT_MAX_TURNS must be a valid integer, got '{max_turns_raw}'."
-            )
-        if max_turns <= 0:
-            raise SystemExit(
-                f"GRAFT_MAX_TURNS must be a positive integer, got {max_turns}."
-            )
-
         return cls(
             anthropic_api_key=api_key,
             github_token=os.environ.get("GITHUB_TOKEN"),
             model=os.environ.get("GRAFT_MODEL", "claude-opus-4-20250514"),
-            max_agent_turns=max_turns,
+            max_agent_turns=int(os.environ.get("GRAFT_MAX_TURNS", "50")),
         )
