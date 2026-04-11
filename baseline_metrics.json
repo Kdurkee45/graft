@@ -1,0 +1,56 @@
+{
+  "timestamp": "2026-04-11T15:01:00Z",
+  "project": {
+    "languages": ["python"],
+    "loc": 2508,
+    "files": 24
+  },
+  "services": [
+    {
+      "name": ".",
+      "language": "python",
+      "framework": "langgraph+typer+claude-agent-sdk",
+      "package_manager": "uv",
+      "test_runner": "pytest",
+      "linter": "ruff",
+      "type_checker": "mypy",
+      "loc": 2508,
+      "files": 24
+    }
+  ],
+  "scores": {
+    "lint_violations": 56,
+    "type_errors": 26,
+    "complexity_violations": 4,
+    "security_findings_critical": 0,
+    "security_findings_high": 0,
+    "security_findings_medium": 0,
+    "security_findings_low": 0,
+    "test_passed": 39,
+    "test_failed": 0,
+    "test_skipped": 0,
+    "test_coverage_pct": 38,
+    "untested_modules": [
+      "src/graft/cli.py",
+      "src/graft/agent.py",
+      "src/graft/ui.py",
+      "src/graft/stages/discover.py",
+      "src/graft/stages/research.py",
+      "src/graft/stages/grill.py",
+      "src/graft/stages/plan.py",
+      "src/graft/stages/execute.py",
+      "src/graft/stages/verify.py"
+    ],
+    "ci_gaps": [
+      "no CI config",
+      "CI does not run tests on PRs",
+      "no linter in CI",
+      "no type checker in CI",
+      "no coverage reporting in CI",
+      "no dependency vulnerability scanning in CI"
+    ],
+    "duplicate_blocks": 5,
+    "dead_code_lines": 10,
+    "dependency_vulnerabilities": 0
+  }
+}
