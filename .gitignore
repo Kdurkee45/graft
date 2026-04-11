@@ -13,3 +13,4 @@ venv/
 *.egg
 .env
 .graft/
+.coverage
