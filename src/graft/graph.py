@@ -9,6 +9,7 @@ that a fundamental technical assumption from Research was wrong.
 from __future__ import annotations
 
 import functools
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -27,8 +28,9 @@ def _wrap(fn, ui: UI):
     """Wrap a node function so it receives the shared UI instance."""
 
     @functools.wraps(fn)
-    async def wrapper(state: FeatureState) -> dict:
-        return await fn(state, ui)
+    async def wrapper(state: FeatureState) -> dict[str, Any]:
+        result: dict[str, Any] = await fn(state, ui)
+        return result
 
     return wrapper
 
