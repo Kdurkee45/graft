@@ -9,8 +9,6 @@ that a fundamental technical assumption from Research was wrong.
 from __future__ import annotations
 
 import functools
-from collections.abc import Awaitable, Callable
-from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -25,11 +23,11 @@ from graft.state import FeatureState
 from graft.ui import UI
 
 
-def _wrap(fn: Callable[..., Awaitable[dict[str, Any]]], ui: UI):
+def _wrap(fn, ui: UI):
     """Wrap a node function so it receives the shared UI instance."""
 
     @functools.wraps(fn)
-    async def wrapper(state: FeatureState) -> dict[str, Any]:
+    async def wrapper(state: FeatureState) -> dict:
         return await fn(state, ui)
 
     return wrapper
