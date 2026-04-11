@@ -35,6 +35,38 @@ def test_settings_load_missing_key(monkeypatch):
         Settings.load()
 
 
+def test_settings_load_invalid_max_turns_non_numeric(monkeypatch):
+    """Settings.load() raises SystemExit for non-numeric GRAFT_MAX_TURNS."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GRAFT_MAX_TURNS", "abc")
+    with pytest.raises(SystemExit, match="must be a valid integer"):
+        Settings.load()
+
+
+def test_settings_load_invalid_max_turns_zero(monkeypatch):
+    """Settings.load() raises SystemExit for zero GRAFT_MAX_TURNS."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GRAFT_MAX_TURNS", "0")
+    with pytest.raises(SystemExit, match="must be a positive integer"):
+        Settings.load()
+
+
+def test_settings_load_invalid_max_turns_negative(monkeypatch):
+    """Settings.load() raises SystemExit for negative GRAFT_MAX_TURNS."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GRAFT_MAX_TURNS", "-5")
+    with pytest.raises(SystemExit, match="must be a positive integer"):
+        Settings.load()
+
+
+def test_settings_load_valid_max_turns(monkeypatch):
+    """Settings.load() accepts a valid positive GRAFT_MAX_TURNS."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("GRAFT_MAX_TURNS", "10")
+    settings = Settings.load()
+    assert settings.max_agent_turns == 10
+
+
 def test_find_env_file(tmp_path):
     """_find_env_file() finds .env in current directory."""
     env_file = tmp_path / ".env"
