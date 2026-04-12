@@ -53,17 +53,14 @@ async def run_agent(
             "Grep",
         ]
 
-    opts = {
-        "system_prompt": system_prompt,
-        "cwd": cwd,
-        "max_turns": max_turns,
-        "allowed_tools": allowed_tools,
-        "permission_mode": "bypassPermissions",
-    }
-    if model:
-        opts["model"] = model
-
-    options = ClaudeAgentOptions(**opts)
+    options = ClaudeAgentOptions(
+        system_prompt=system_prompt,
+        cwd=cwd,
+        max_turns=max_turns,
+        allowed_tools=allowed_tools,
+        permission_mode="bypassPermissions",
+        model=model if model else None,
+    )
 
     last_error: Exception | None = None
 
