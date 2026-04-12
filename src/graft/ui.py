@@ -6,7 +6,6 @@ The user always knows what's happening.
 from __future__ import annotations
 
 import sys
-from typing import Any
 
 from rich import box
 from rich.console import Console
@@ -35,7 +34,7 @@ class UI:
         self.auto_approve = auto_approve or not sys.stdin.isatty()
         self.verbose = verbose
 
-    def _safe_print(self, *args: Any, **kwargs: Any) -> None:
+    def _safe_print(self, *args, **kwargs) -> None:
         """Print that gracefully handles non-interactive/pipe scenarios."""
         try:
             self.console.print(*args, **kwargs)
