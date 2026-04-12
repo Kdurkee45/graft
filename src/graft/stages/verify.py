@@ -12,7 +12,12 @@ from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_project_done, mark_stage_complete, save_artifact
-from graft.stages._helpers import async_read_text, cleanup_artifacts, find_artifact
+from graft.stages._helpers import (
+    async_read_text,
+    async_subprocess_run,
+    cleanup_artifacts,
+    find_artifact,
+)
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -151,14 +156,9 @@ async def verify_node(state: FeatureState, ui: UI) -> dict[str, Any]:
 
     if branch:
         # Stage any verification artifacts cleanup
-        subprocess.run(
-            ["git", "add", "-A"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-        )
+        await async_subprocess_run(["git", "add", "-A"], cwd=repo_path)
         # Only commit if there are changes
-        subprocess.run(
+        await async_subprocess_run(
             [
                 "git",
                 "commit",
@@ -167,8 +167,6 @@ async def verify_node(state: FeatureState, ui: UI) -> dict[str, Any]:
                 "--allow-empty",
             ],
             cwd=repo_path,
-            capture_output=True,
-            text=True,
         )
 
         pr_title = f"Feature: {feature_name}"
