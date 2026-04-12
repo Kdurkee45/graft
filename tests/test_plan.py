@@ -541,9 +541,8 @@ class TestPlanReviewNodeInteractive:
         assert "Total build units: 1" in summary_arg
         assert "Estimated cost:" in summary_arg
 
-    async def test_rejection_still_approves(self, repo, project, ui):
-        """Current behavior: rejection still returns plan_approved=True
-        because re-planning is not yet implemented."""
+    async def test_rejection_returns_not_approved(self, repo, project, ui):
+        """Rejection sets plan_approved=False to route back to plan stage."""
         ui.prompt_plan_review.return_value = (False, "needs more tests")
         state = _state(
             repo,
@@ -553,11 +552,11 @@ class TestPlanReviewNodeInteractive:
         )
         result = await plan_review_node(state, ui)
 
-        # The node always approves (re-planning not implemented yet)
-        assert result == {"plan_approved": True}
+        assert result["plan_approved"] is False
+        assert result["plan_feedback"] == "needs more tests"
 
     async def test_rejection_logs_feedback(self, repo, project, ui):
-        """On rejection, both feedback and re-planning note are logged."""
+        """On rejection, feedback is logged with re-planning message."""
         ui.prompt_plan_review.return_value = (False, "needs more tests")
         state = _state(
             repo,
@@ -569,7 +568,7 @@ class TestPlanReviewNodeInteractive:
 
         calls = ui.info.call_args_list
         assert any("needs more tests" in str(c) for c in calls)
-        assert any("Re-planning is not yet implemented" in str(c) for c in calls)
+        assert any("re-planning" in str(c).lower() for c in calls)
 
     async def test_default_auto_approve_is_false(self, repo, project, ui):
         """When auto_approve is not in state, defaults to False (interactive)."""

@@ -203,9 +203,8 @@ async def plan_review_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         ui.info("Plan approved — proceeding to execute.")
         return {"plan_approved": True}
     else:
-        ui.info(f"Plan feedback received: {feedback}")
-        ui.info("Re-planning is not yet implemented — proceeding with current plan.")
-        return {"plan_approved": True}
+        ui.info(f"Plan rejected — re-planning with feedback: {feedback}")
+        return {"plan_approved": False, "plan_feedback": feedback}
 
 
 def plan_review_router(state: FeatureState) -> str:
