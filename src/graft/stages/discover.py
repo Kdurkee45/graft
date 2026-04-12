@@ -14,12 +14,13 @@ import json
 from typing import Any
 
 from graft.agent import run_agent
-from graft.artifacts import mark_stage_complete, save_artifact
+from graft.artifacts import save_artifact
 from graft.stages._helpers import (
     async_read_text,
     cleanup_artifacts,
     find_artifact,
     resolve_stage_cwd,
+    stage_node,
 )
 from graft.state import FeatureState
 from graft.ui import UI
@@ -159,9 +160,9 @@ def _build_discover_prompt(repo_path: str, scope_path: str, feature_prompt: str)
     return "\n".join(prompt_parts)
 
 
+@stage_node("discover")
 async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: discover the codebase architecture and patterns."""
-    ui.stage_start("discover")
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     scope_path = state.get("scope_path", "")
@@ -215,11 +216,7 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         ["discovery_report.md", "codebase_profile.json"],
     )
 
-    mark_stage_complete(project_dir, "discover")
-    ui.stage_done("discover")
-
     return {
         "codebase_profile": codebase_profile,
         "discovery_report": discovery_report,
-        "current_stage": "discover",
     }

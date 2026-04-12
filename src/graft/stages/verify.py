@@ -11,8 +11,13 @@ import subprocess
 from typing import Any
 
 from graft.agent import run_agent
-from graft.artifacts import mark_project_done, mark_stage_complete, save_artifact
-from graft.stages._helpers import async_read_text, cleanup_artifacts, find_artifact
+from graft.artifacts import mark_project_done, save_artifact
+from graft.stages._helpers import (
+    async_read_text,
+    cleanup_artifacts,
+    find_artifact,
+    stage_node,
+)
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -95,9 +100,9 @@ def _open_pr(repo_path: str, branch: str, title: str, body: str) -> str | None:
         return None
 
 
+@stage_node("verify")
 async def verify_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: validate the feature, run regression, and open the PR."""
-    ui.stage_start("verify")
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     feature_prompt = state.get("feature_prompt", "")
@@ -183,14 +188,10 @@ async def verify_node(state: FeatureState, ui: UI) -> dict[str, Any]:
             )
             ui.info(f"Report saved to: {project_dir}/artifacts/feature_report.md")
 
-    mark_stage_complete(project_dir, "verify")
     if pr_url:
         mark_project_done(project_dir, pr_url)
-
-    ui.stage_done("verify")
 
     return {
         "feature_report": feature_report,
         "pr_url": pr_url,
-        "current_stage": "verify",
     }
