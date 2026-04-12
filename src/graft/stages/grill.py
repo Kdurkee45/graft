@@ -10,6 +10,7 @@ This is the primary human touchpoint — efficient Q&A, not document writing.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
@@ -140,8 +141,6 @@ async def grill_node(state: FeatureState, ui: UI) -> dict:
         f"Write feature_spec.json to the working directory."
     )
 
-    from pathlib import Path
-
     await run_agent(
         persona="Principal Product Architect",
         system_prompt=COMPILE_SYSTEM_PROMPT,
@@ -204,8 +203,6 @@ async def _generate_questions(
     model: str | None,
 ) -> list[dict]:
     """Generate open questions when Research didn't produce them."""
-    from pathlib import Path
-
     gen_prompt = (
         f"Generate focused questions for building this feature.\n\n"
         f"FEATURE: {feature_prompt}\n\n"
