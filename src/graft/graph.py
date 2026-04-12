@@ -10,6 +10,7 @@ that a fundamental technical assumption from Research was wrong.
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable, Hashable
 from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
@@ -56,7 +57,9 @@ _SIMPLE_EDGES: list[tuple[str, str, frozenset[str]]] = [
 ]
 
 # Conditional edge configuration: (source, router, mapping, required_stages)
-_CONDITIONAL_EDGES: list[tuple[str, Any, dict[str, str], frozenset[str]]] = [
+_CONDITIONAL_EDGES: list[
+    tuple[str, Callable[[FeatureState], str], dict[str, str], frozenset[str]]
+] = [
     (
         "grill",
         grill_router,
@@ -103,6 +106,8 @@ def build_graph(ui: UI, *, entry_stage: str = "discover") -> CompiledStateGraph:
     # Wire conditional edges
     for source, router, mapping, required in _CONDITIONAL_EDGES:
         if required <= active:
-            graph.add_conditional_edges(source, router, mapping)
+            graph.add_conditional_edges(
+                source, router, cast(dict[Hashable, str], mapping)
+            )
 
     return graph.compile()
