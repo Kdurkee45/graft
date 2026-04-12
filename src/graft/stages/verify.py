@@ -12,7 +12,7 @@ from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_project_done, mark_stage_complete, save_artifact
-from graft.stages._helpers import async_read_text, cleanup_artifacts, find_artifact
+from graft.stages._helpers import cleanup_artifacts, read_text_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -137,9 +137,8 @@ async def verify_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read report
-    report_path = find_artifact("feature_report.md", repo_path, repo_path)
-    feature_report = (
-        (await async_read_text(report_path)) if report_path.exists() else result.text
+    feature_report = await read_text_artifact(
+        "feature_report.md", repo_path, repo_path, fallback=result.text
     )
     save_artifact(project_dir, "feature_report.md", feature_report)
     cleanup_artifacts(repo_path, repo_path, ["feature_report.md"])

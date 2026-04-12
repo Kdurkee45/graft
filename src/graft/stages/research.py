@@ -13,9 +13,9 @@ from typing import Any
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
 from graft.stages._helpers import (
-    async_read_text,
     cleanup_artifacts,
-    find_artifact,
+    read_json_artifact,
+    read_text_artifact,
     resolve_stage_cwd,
 )
 from graft.state import FeatureState
@@ -157,23 +157,14 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read agent outputs
-    report_path = find_artifact("research_report.md", research_cwd, repo_path)
-    assessment_path = find_artifact(
-        "technical_assessment.json", research_cwd, repo_path
-    )
-
-    research_report = (
-        (await async_read_text(report_path)) if report_path.exists() else result.text
+    research_report = await read_text_artifact(
+        "research_report.md", research_cwd, repo_path, fallback=result.text
     )
     save_artifact(project_dir, "research_report.md", research_report)
 
-    technical_assessment: dict = {}
-    if assessment_path.exists():
-        try:
-            technical_assessment = json.loads(await async_read_text(assessment_path))
-        except json.JSONDecodeError:
-            ui.error("Failed to parse technical_assessment.json from agent output.")
-
+    technical_assessment = await read_json_artifact(
+        "technical_assessment.json", research_cwd, repo_path, ui=ui
+    )
     save_artifact(
         project_dir,
         "technical_assessment.json",
