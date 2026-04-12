@@ -16,7 +16,8 @@ from graft.artifacts import mark_project_done, mark_stage_complete, save_artifac
 from graft.state import FeatureState
 from graft.ui import UI
 
-SYSTEM_PROMPT = """You are a Principal Quality Engineer and Technical Program Manager performing
+SYSTEM_PROMPT = """\
+You are a Principal Quality Engineer and Technical Program Manager performing
 a final verification of a newly built feature.
 
 You have:
@@ -113,9 +114,12 @@ async def verify_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         f"CODEBASE PROFILE:\n{json.dumps(codebase_profile, indent=2)}\n\n"
         f"FEATURE SPEC:\n{json.dumps(feature_spec, indent=2)}\n\n"
         f"BUILD PLAN ({len(build_plan)} units):\n{json.dumps(build_plan, indent=2)}\n\n"
-        f"UNITS COMPLETED ({len(units_completed)}):\n{json.dumps(units_completed, indent=2)}\n\n"
-        f"UNITS REVERTED ({len(units_reverted)}):\n{json.dumps(units_reverted, indent=2)}\n\n"
-        f"UNITS SKIPPED ({len(units_skipped)}):\n{json.dumps(units_skipped, indent=2)}\n\n"
+        f"UNITS COMPLETED ({len(units_completed)}):\n"
+        f"{json.dumps(units_completed, indent=2)}\n\n"
+        f"UNITS REVERTED ({len(units_reverted)}):\n"
+        f"{json.dumps(units_reverted, indent=2)}\n\n"
+        f"UNITS SKIPPED ({len(units_skipped)}):\n"
+        f"{json.dumps(units_skipped, indent=2)}\n\n"
         f"Run all checks and produce feature_report.md."
     )
 

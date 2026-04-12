@@ -18,7 +18,8 @@ from graft.artifacts import mark_stage_complete, save_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
-COMPILE_SYSTEM_PROMPT = """You are a Principal Product Architect. You have just completed a structured
+COMPILE_SYSTEM_PROMPT = """\
+You are a Principal Product Architect. You have just completed a structured
 interrogation with a human about a feature they want to build.
 
 You have:
@@ -210,7 +211,8 @@ async def _generate_questions(
         f"CODEBASE PROFILE:\n{json.dumps(codebase_profile, indent=2)}\n\n"
         f"TECHNICAL ASSESSMENT:\n{json.dumps(technical_assessment, indent=2)}\n\n"
         f"Write a JSON file called `open_questions.json` with an array of objects, "
-        f"each having: question, category (intent/edge_case/preference/prioritization), "
+        f"each having: question, category "
+        f"(intent/edge_case/preference/prioritization), "
         f"and recommended_answer.\n\n"
         f"Focus on questions that REQUIRE human intent — things the code can't answer. "
         f"Provide a recommended answer for each. 5-15 questions is typical."

@@ -18,7 +18,8 @@ from graft.artifacts import mark_stage_complete, save_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
-SYSTEM_PROMPT = """You are a Principal Software Engineer building a feature into an existing codebase.
+SYSTEM_PROMPT = """\
+You are a Principal Software Engineer building a feature into an existing codebase.
 
 You will be given ONE specific build task with:
 - A description of what to implement

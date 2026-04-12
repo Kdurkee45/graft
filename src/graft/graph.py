@@ -1,6 +1,7 @@
 """LangGraph state machine — orchestrates the 6-stage feature pipeline.
 
-    Discover → Research → Grill → [Grill↔Research loop] → Plan → [Plan Review] → Execute → Verify
+    Discover → Research → Grill → [Grill↔Research loop]
+    → Plan → [Plan Review] → Execute → Verify
 
 The Grill→Research loop-back is conditional: only triggers if Grill reveals
 that a fundamental technical assumption from Research was wrong.

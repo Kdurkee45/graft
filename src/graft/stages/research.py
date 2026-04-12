@@ -87,7 +87,8 @@ Structured data with this shape:
   "edge_cases": [...],
   "integration_points": [...],
   "open_questions": [
-    {"question": "...", "category": "intent|edge_case|preference|prioritization", "recommended_answer": "..."}
+    {"question": "...", "category": "intent|edge_case|preference|prioritization",
+     "recommended_answer": "..."}
   ]
 }
 ```
@@ -117,7 +118,8 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
             research_cwd = str(scoped_dir)
 
     prompt_parts = [
-        f"Research what is needed to build this feature into the codebase at: {repo_path}",
+        "Research what is needed to build this feature"
+        f" into the codebase at: {repo_path}",
         f"\nFEATURE: {feature_prompt}",
         f"\nCODEBASE PROFILE:\n{json.dumps(codebase_profile, indent=2)}",
     ]
@@ -168,7 +170,8 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     open_questions = technical_assessment.get("open_questions", [])
     if open_questions:
         ui.info(
-            f"Research identified {len(open_questions)} open question(s) for the Grill phase."
+            f"Research identified {len(open_questions)}"
+            " open question(s) for the Grill phase."
         )
 
     # Clean up

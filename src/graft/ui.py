@@ -1,4 +1,7 @@
-"""Rich terminal UI — streams live progress so the user always knows what's happening."""
+"""Rich terminal UI — streams live progress.
+
+The user always knows what's happening.
+"""
 
 from __future__ import annotations
 

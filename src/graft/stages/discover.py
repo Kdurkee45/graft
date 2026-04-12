@@ -19,7 +19,8 @@ from graft.artifacts import mark_stage_complete, save_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
-SYSTEM_PROMPT = """You are a Principal Codebase Archaeologist with deep expertise in understanding
+SYSTEM_PROMPT = """\
+You are a Principal Codebase Archaeologist with deep expertise in understanding
 existing software systems. Your job is to build a complete mental model of a
 codebase — architecture, patterns, data model, conventions, and test
 infrastructure.
@@ -149,7 +150,8 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     ]
     if scope_path:
         prompt_parts.append(
-            f"\nSCOPE: Focus primarily on '{scope_path}/' but understand the full project context."
+            f"\nSCOPE: Focus primarily on '{scope_path}/'"
+            f" but understand the full project context."
         )
     if feature_prompt:
         prompt_parts.append(
