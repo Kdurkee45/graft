@@ -45,6 +45,49 @@ _NODE_FACTORIES = {
     "verify": lambda ui: [("verify", verify_node)],
 }
 
+# Declarative edge definitions: (required_active_stages, source, target_or_router[, route_map])
+# Tuples of length 3 are simple edges; length 4 are conditional edges.
+_EDGE_DEFS: list[tuple] = [
+    # Discover → Research
+    ({"discover", "research"}, "discover", "research"),
+    # Research → Grill
+    ({"research", "grill"}, "research", "grill"),
+    # Grill → conditional: Plan or loop back to Research
+    (
+        {"grill", "plan"},
+        "grill",
+        grill_router,
+        {"plan": "plan", "research": "research"},
+    ),
+    # Plan → Plan Review
+    ({"plan"}, "plan", "plan_review"),
+    # Plan Review → conditional: Execute or revise Plan
+    (
+        {"plan", "execute"},
+        "plan_review",
+        plan_review_router,
+        {"execute": "execute", "plan": "plan"},
+    ),
+    # Execute → Verify
+    ({"execute", "verify"}, "execute", "verify"),
+    # Verify → END
+    ({"verify"}, "verify", END),
+]
+
+
+def _wire_edges(graph: StateGraph, active: set[str]) -> None:
+    """Add edges to *graph* for all stages present in *active*."""
+    for defn in _EDGE_DEFS:
+        required = defn[0]
+        if not required.issubset(active):
+            continue
+        if len(defn) == 3:
+            # Simple edge: (required, source, target)
+            graph.add_edge(defn[1], defn[2])
+        else:
+            # Conditional edge: (required, source, router, route_map)
+            graph.add_conditional_edges(defn[1], defn[2], defn[3])
+
 
 def build_graph(ui: UI, *, entry_stage: str = "discover") -> CompiledStateGraph:
     """Construct and compile the feature pipeline graph.
@@ -68,39 +111,6 @@ def build_graph(ui: UI, *, entry_stage: str = "discover") -> CompiledStateGraph:
 
     # Wire edges
     graph.add_edge(START, entry_stage)
-
-    # Discover → Research
-    if "discover" in active and "research" in active:
-        graph.add_edge("discover", "research")
-
-    # Research → Grill
-    if "research" in active and "grill" in active:
-        graph.add_edge("research", "grill")
-
-    # Grill → conditional: Plan or loop back to Research
-    if "grill" in active and "plan" in active:
-        graph.add_conditional_edges(
-            "grill",
-            grill_router,
-            {"plan": "plan", "research": "research"},
-        )
-
-    # Plan → Plan Review → Execute (with conditional routing)
-    if "plan" in active:
-        graph.add_edge("plan", "plan_review")
-        if "execute" in active:
-            graph.add_conditional_edges(
-                "plan_review",
-                plan_review_router,
-                {"execute": "execute", "plan": "plan"},
-            )
-
-    # Execute → Verify
-    if "execute" in active and "verify" in active:
-        graph.add_edge("execute", "verify")
-
-    # Verify → END
-    if "verify" in active:
-        graph.add_edge("verify", END)
+    _wire_edges(graph, active)
 
     return graph.compile()
