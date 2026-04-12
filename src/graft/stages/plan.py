@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from graft.agent import run_agent
-from graft.artifacts import save_artifact
-from graft.stages._helpers import async_read_text, stage_node
+from graft.artifacts import mark_stage_complete, save_artifact
+from graft.stages._helpers import async_read_text
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -99,9 +99,9 @@ Write the file to the current working directory.
 """
 
 
-@stage_node("plan")
 async def plan_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: generate the build plan."""
+    ui.stage_start("plan")
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     feature_prompt = state.get("feature_prompt", "")
@@ -156,8 +156,12 @@ async def plan_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     if plan_path.exists():
         plan_path.unlink()
 
+    mark_stage_complete(project_dir, "plan")
+    ui.stage_done("plan")
+
     return {
         "build_plan": build_plan,
+        "current_stage": "plan",
     }
 
 

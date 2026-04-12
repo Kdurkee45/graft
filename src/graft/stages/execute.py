@@ -14,8 +14,7 @@ import subprocess
 from typing import Any
 
 from graft.agent import run_agent
-from graft.artifacts import save_artifact
-from graft.stages._helpers import stage_node
+from graft.artifacts import mark_stage_complete, save_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -257,9 +256,9 @@ async def _execute_unit(
     }
 
 
-@stage_node("execute")
 async def execute_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: execute build units one at a time."""
+    ui.stage_start("execute")
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     plan = state.get("build_plan", [])
@@ -267,7 +266,8 @@ async def execute_node(state: FeatureState, ui: UI) -> dict[str, Any]:
 
     if not plan:
         ui.error("No build plan — nothing to execute.")
-        return {}
+        mark_stage_complete(project_dir, "execute")
+        return {"current_stage": "execute"}
 
     ordered_plan = _order_by_dependencies(plan)
 
@@ -316,10 +316,13 @@ async def execute_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         "skipped": units_skipped,
     }
     save_artifact(project_dir, "execution_log.json", json.dumps(log, indent=2))
+    mark_stage_complete(project_dir, "execute")
+    ui.stage_done("execute")
 
     return {
         "units_completed": units_completed,
         "units_reverted": units_reverted,
         "units_skipped": units_skipped,
         "feature_branch": branch_name,
+        "current_stage": "execute",
     }

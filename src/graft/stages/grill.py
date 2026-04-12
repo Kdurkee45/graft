@@ -13,13 +13,8 @@ import json
 from typing import Any
 
 from graft.agent import run_agent
-from graft.artifacts import save_artifact
-from graft.stages._helpers import (
-    async_read_text,
-    cleanup_artifacts,
-    find_artifact,
-    stage_node,
-)
+from graft.artifacts import mark_stage_complete, save_artifact
+from graft.stages._helpers import async_read_text, cleanup_artifacts, find_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -75,9 +70,9 @@ Write the file to the current working directory.
 """
 
 
-@stage_node("grill")
 async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: interrogate the human for intent, preferences, edge cases."""
+    ui.stage_start("grill")
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     feature_prompt = state.get("feature_prompt", "")
@@ -180,11 +175,15 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
             "Grill revealed a fundamental assumption change — looping back to Research."
         )
 
+    mark_stage_complete(project_dir, "grill")
+    ui.stage_done("grill")
+
     return {
         "feature_spec": feature_spec,
         "grill_transcript": grill_transcript,
         "grill_complete": True,
         "research_redo_needed": research_redo,
+        "current_stage": "grill",
     }
 
 

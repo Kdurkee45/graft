@@ -11,13 +11,12 @@ import json
 from typing import Any
 
 from graft.agent import run_agent
-from graft.artifacts import save_artifact
+from graft.artifacts import mark_stage_complete, save_artifact
 from graft.stages._helpers import (
     async_read_text,
     cleanup_artifacts,
     find_artifact,
     resolve_stage_cwd,
-    stage_node,
 )
 from graft.state import FeatureState
 from graft.ui import UI
@@ -129,9 +128,9 @@ def _build_research_prompt(
     return "\n".join(prompt_parts)
 
 
-@stage_node("research")
 async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: research what the feature needs given the codebase."""
+    ui.stage_start("research")
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     feature_prompt = state.get("feature_prompt", "")
@@ -195,7 +194,11 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         ["research_report.md", "technical_assessment.json"],
     )
 
+    mark_stage_complete(project_dir, "research")
+    ui.stage_done("research")
+
     return {
         "technical_assessment": technical_assessment,
         "research_report": research_report,
+        "current_stage": "research",
     }

@@ -7,15 +7,7 @@ that are common across discover, research, and other stages.
 from __future__ import annotations
 
 import asyncio
-import functools
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from graft.state import FeatureState
-    from graft.ui import UI
-
-from graft.artifacts import mark_stage_complete
 
 
 async def async_read_text(path: Path) -> str:
@@ -66,33 +58,3 @@ def cleanup_artifacts(stage_cwd: str, repo_path: str, filenames: list[str]) -> N
             p = Path(base) / name
             if p.exists():
                 p.unlink()
-
-
-def stage_node(name: str):
-    """Decorator that wraps a stage node function with lifecycle boilerplate.
-
-    Automatically calls ``ui.stage_start(name)`` before the wrapped function,
-    ``mark_stage_complete(project_dir, name)`` and ``ui.stage_done(name)``
-    after, and injects ``"current_stage"`` into the return dict.
-
-    Usage::
-
-        @stage_node("discover")
-        async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
-            # ... stage-specific logic only ...
-            return {"codebase_profile": profile}
-    """
-
-    def decorator(fn):  # noqa: ANN001
-        @functools.wraps(fn)
-        async def wrapper(state: FeatureState, ui: UI) -> dict[str, Any]:
-            ui.stage_start(name)
-            result = await fn(state, ui)
-            mark_stage_complete(state["project_dir"], name)
-            ui.stage_done(name)
-            result["current_stage"] = name
-            return result
-
-        return wrapper
-
-    return decorator
