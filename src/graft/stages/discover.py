@@ -15,7 +15,12 @@ from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
-from graft.stages._helpers import cleanup_artifacts, find_artifact, resolve_stage_cwd
+from graft.stages._helpers import (
+    async_read_text,
+    cleanup_artifacts,
+    find_artifact,
+    resolve_stage_cwd,
+)
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -182,13 +187,15 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     report_path = find_artifact("discovery_report.md", discover_cwd, repo_path)
     profile_path = find_artifact("codebase_profile.json", discover_cwd, repo_path)
 
-    discovery_report = report_path.read_text() if report_path.exists() else result.text
+    discovery_report = (
+        (await async_read_text(report_path)) if report_path.exists() else result.text
+    )
     save_artifact(project_dir, "discovery_report.md", discovery_report)
 
     codebase_profile: dict = {}
     if profile_path.exists():
         try:
-            codebase_profile = json.loads(profile_path.read_text())
+            codebase_profile = json.loads(await async_read_text(profile_path))
         except json.JSONDecodeError:
             ui.error("Failed to parse codebase_profile.json from agent output.")
 

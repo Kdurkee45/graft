@@ -6,7 +6,17 @@ that are common across discover, research, and other stages.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
+
+
+async def async_read_text(path: Path) -> str:
+    """Read a file's text content without blocking the event loop.
+
+    Wraps :meth:`Path.read_text` via :func:`asyncio.to_thread` so that
+    callers in async node functions avoid stalling the loop on disk I/O.
+    """
+    return await asyncio.to_thread(path.read_text)
 
 
 def resolve_stage_cwd(repo_path: str, scope_path: str) -> str:

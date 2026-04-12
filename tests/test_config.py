@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+from dotenv import load_dotenv
 
 from graft.config import Settings, _find_env_file
 
@@ -40,6 +41,20 @@ def test_find_env_file(tmp_path):
     with patch("graft.config.Path.cwd", return_value=tmp_path):
         result = _find_env_file()
         assert result == env_file
+
+
+def test_settings_load_calls_load_dotenv(tmp_path, monkeypatch):
+    """Settings.load() calls load_dotenv when _find_env_file returns a path."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("ANTHROPIC_API_KEY=dotenv-key-456\n")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with (
+        patch("graft.config._find_env_file", return_value=env_file),
+        patch("graft.config.load_dotenv", wraps=load_dotenv) as mock_ld,
+    ):
+        settings = Settings.load()
+        mock_ld.assert_called_once_with(env_file)
+    assert settings.anthropic_api_key == "dotenv-key-456"
 
 
 def test_find_env_file_not_found(tmp_path):
