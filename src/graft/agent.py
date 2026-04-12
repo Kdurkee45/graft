@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 
@@ -19,8 +18,8 @@ RETRY_BACKOFF_BASE = 2.0
 @dataclass
 class AgentResult:
     text: str
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
-    raw_messages: list[Any] = field(default_factory=list)
+    tool_calls: list[dict] = field(default_factory=list)
+    raw_messages: list = field(default_factory=list)
     elapsed_seconds: float = 0.0
     turns_used: int = 0
 
@@ -54,21 +53,24 @@ async def run_agent(
             "Grep",
         ]
 
-    options = ClaudeAgentOptions(
-        system_prompt=system_prompt,
-        cwd=cwd,
-        max_turns=max_turns,
-        allowed_tools=allowed_tools,
-        permission_mode="bypassPermissions",
-        model=model,
-    )
+    opts = {
+        "system_prompt": system_prompt,
+        "cwd": cwd,
+        "max_turns": max_turns,
+        "allowed_tools": allowed_tools,
+        "permission_mode": "bypassPermissions",
+    }
+    if model:
+        opts["model"] = model
+
+    options = ClaudeAgentOptions(**opts)
 
     last_error: Exception | None = None
 
     for attempt in range(1, MAX_RETRIES + 1):
         text_parts: list[str] = []
-        tool_calls: list[dict[str, Any]] = []
-        raw_messages: list[Any] = []
+        tool_calls: list[dict] = []
+        raw_messages: list = []
 
         ui.stage_log(stage, f"[bold]Agent ({persona})[/bold] starting…")
         start = time.monotonic()
@@ -113,12 +115,7 @@ async def run_agent(
 
 
 def _process_message(
-    message: Any,  # SDK message type; not publicly exported by claude_agent_sdk
-    text_parts: list[str],
-    tool_calls: list[dict[str, Any]],
-    stage: str,
-    ui: UI,
-    project_dir: str,
+    message, text_parts: list, tool_calls: list, stage: str, ui: UI, project_dir: str
 ) -> None:
     """Extract text and tool-use info from a single SDK message."""
     if not hasattr(message, "content"):
