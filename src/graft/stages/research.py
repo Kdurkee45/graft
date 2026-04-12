@@ -101,18 +101,13 @@ Write both files to the current working directory.
 """
 
 
-async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
-    """LangGraph node: research what the feature needs given the codebase."""
-    ui.stage_start("research")
-    repo_path = state["repo_path"]
-    project_dir = state["project_dir"]
-    feature_prompt = state.get("feature_prompt", "")
-    codebase_profile = state.get("codebase_profile", {})
-    scope_path = state.get("scope_path", "")
-    constraints = state.get("constraints", [])
-
-    research_cwd = resolve_stage_cwd(repo_path, scope_path)
-
+def _build_research_prompt(
+    repo_path: str,
+    feature_prompt: str,
+    codebase_profile: dict,
+    constraints: list[str],
+) -> str:
+    """Assemble the user prompt for the research stage."""
     prompt_parts = [
         "Research what is needed to build this feature"
         f" into the codebase at: {repo_path}",
@@ -125,11 +120,28 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         "\nExplore the actual codebase to validate and extend the profile. "
         "Read key files. Understand the real patterns, not just the metadata."
     )
+    return "\n".join(prompt_parts)
+
+
+async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
+    """LangGraph node: research what the feature needs given the codebase."""
+    ui.stage_start("research")
+    repo_path = state["repo_path"]
+    project_dir = state["project_dir"]
+    feature_prompt = state.get("feature_prompt", "")
+    codebase_profile = state.get("codebase_profile", {})
+    scope_path = state.get("scope_path", "")
+    constraints = state.get("constraints", [])
+
+    research_cwd = resolve_stage_cwd(repo_path, scope_path)
+    user_prompt = _build_research_prompt(
+        repo_path, feature_prompt, codebase_profile, constraints
+    )
 
     result = await run_agent(
         persona="Staff Software Architect (Feature Specialist)",
         system_prompt=SYSTEM_PROMPT,
-        user_prompt="\n".join(prompt_parts),
+        user_prompt=user_prompt,
         cwd=research_cwd,
         project_dir=project_dir,
         stage="research",

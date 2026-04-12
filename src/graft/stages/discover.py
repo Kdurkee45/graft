@@ -131,16 +131,8 @@ Write both files to the current working directory. Be thorough.
 """
 
 
-async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
-    """LangGraph node: discover the codebase architecture and patterns."""
-    ui.stage_start("discover")
-    repo_path = state["repo_path"]
-    project_dir = state["project_dir"]
-    scope_path = state.get("scope_path", "")
-    feature_prompt = state.get("feature_prompt", "")
-
-    discover_cwd = resolve_stage_cwd(repo_path, scope_path)
-
+def _build_discover_prompt(repo_path: str, scope_path: str, feature_prompt: str) -> str:
+    """Assemble the user prompt for the discover stage."""
     prompt_parts = [
         f"Discover and map the codebase at: {repo_path}",
     ]
@@ -159,11 +151,24 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     prompt_parts.append(
         "\nProduce a comprehensive discovery report and codebase profile."
     )
+    return "\n".join(prompt_parts)
+
+
+async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
+    """LangGraph node: discover the codebase architecture and patterns."""
+    ui.stage_start("discover")
+    repo_path = state["repo_path"]
+    project_dir = state["project_dir"]
+    scope_path = state.get("scope_path", "")
+    feature_prompt = state.get("feature_prompt", "")
+
+    discover_cwd = resolve_stage_cwd(repo_path, scope_path)
+    user_prompt = _build_discover_prompt(repo_path, scope_path, feature_prompt)
 
     result = await run_agent(
         persona="Principal Codebase Archaeologist",
         system_prompt=SYSTEM_PROMPT,
-        user_prompt="\n".join(prompt_parts),
+        user_prompt=user_prompt,
         cwd=discover_cwd,
         project_dir=project_dir,
         stage="discover",
