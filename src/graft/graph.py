@@ -1,6 +1,7 @@
 """LangGraph state machine — orchestrates the 6-stage feature pipeline.
 
-    Discover → Research → Grill → [Grill↔Research loop] → Plan → [Plan Review] → Execute → Verify
+    Discover → Research → Grill → [Grill↔Research loop]
+    → Plan → [Plan Review] → Execute → Verify
 
 The Grill→Research loop-back is conditional: only triggers if Grill reveals
 that a fundamental technical assumption from Research was wrong.
@@ -9,7 +10,7 @@ that a fundamental technical assumption from Research was wrong.
 from __future__ import annotations
 
 import functools
-from typing import Any
+from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -29,7 +30,7 @@ def _wrap(fn, ui: UI):
 
     @functools.wraps(fn)
     async def wrapper(state: FeatureState) -> dict[str, Any]:
-        return await fn(state, ui)
+        return cast(dict[str, Any], await fn(state, ui))
 
     return wrapper
 
@@ -45,6 +46,31 @@ _NODE_FACTORIES = {
     "verify": lambda ui: [("verify", verify_node)],
 }
 
+# Edge configuration: (source, target, required_stages)
+_SIMPLE_EDGES: list[tuple[str, str, frozenset[str]]] = [
+    ("discover", "research", frozenset({"discover", "research"})),
+    ("research", "grill", frozenset({"research", "grill"})),
+    ("plan", "plan_review", frozenset({"plan"})),
+    ("execute", "verify", frozenset({"execute", "verify"})),
+    ("verify", END, frozenset({"verify"})),
+]
+
+# Conditional edge configuration: (source, router, mapping, required_stages)
+_CONDITIONAL_EDGES: list[tuple[str, Any, dict[str, str], frozenset[str]]] = [
+    (
+        "grill",
+        grill_router,
+        {"plan": "plan", "research": "research"},
+        frozenset({"grill", "plan"}),
+    ),
+    (
+        "plan_review",
+        plan_review_router,
+        {"execute": "execute", "plan": "plan"},
+        frozenset({"plan", "execute"}),
+    ),
+]
+
 
 def build_graph(ui: UI, *, entry_stage: str = "discover") -> CompiledStateGraph:
     """Construct and compile the feature pipeline graph.
@@ -56,7 +82,7 @@ def build_graph(ui: UI, *, entry_stage: str = "discover") -> CompiledStateGraph:
         entry_stage = "discover"
 
     entry_idx = ORDERED_STAGES.index(entry_stage)
-    active = set(ORDERED_STAGES[entry_idx:])
+    active = frozenset(ORDERED_STAGES[entry_idx:])
 
     graph = StateGraph(FeatureState)
 
@@ -66,41 +92,17 @@ def build_graph(ui: UI, *, entry_stage: str = "discover") -> CompiledStateGraph:
             for name, fn in _NODE_FACTORIES[stage](ui):
                 graph.add_node(name, _wrap(fn, ui))
 
-    # Wire edges
+    # Wire entry edge
     graph.add_edge(START, entry_stage)
 
-    # Discover → Research
-    if "discover" in active and "research" in active:
-        graph.add_edge("discover", "research")
+    # Wire simple edges
+    for source, target, required in _SIMPLE_EDGES:
+        if required <= active:
+            graph.add_edge(source, target)
 
-    # Research → Grill
-    if "research" in active and "grill" in active:
-        graph.add_edge("research", "grill")
-
-    # Grill → conditional: Plan or loop back to Research
-    if "grill" in active and "plan" in active:
-        graph.add_conditional_edges(
-            "grill",
-            grill_router,
-            {"plan": "plan", "research": "research"},
-        )
-
-    # Plan → Plan Review → Execute (with conditional routing)
-    if "plan" in active:
-        graph.add_edge("plan", "plan_review")
-        if "execute" in active:
-            graph.add_conditional_edges(
-                "plan_review",
-                plan_review_router,
-                {"execute": "execute", "plan": "plan"},
-            )
-
-    # Execute → Verify
-    if "execute" in active and "verify" in active:
-        graph.add_edge("execute", "verify")
-
-    # Verify → END
-    if "verify" in active:
-        graph.add_edge("verify", END)
+    # Wire conditional edges
+    for source, router, mapping, required in _CONDITIONAL_EDGES:
+        if required <= active:
+            graph.add_conditional_edges(source, router, mapping)
 
     return graph.compile()

@@ -8,11 +8,11 @@ pattern matching, edge cases, and open questions for the Grill phase.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
+from graft.stages._helpers import cleanup_artifacts, find_artifact, resolve_stage_cwd
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -87,7 +87,8 @@ Structured data with this shape:
   "edge_cases": [...],
   "integration_points": [...],
   "open_questions": [
-    {"question": "...", "category": "intent|edge_case|preference|prioritization", "recommended_answer": "..."}
+    {"question": "...", "category": "intent|edge_case|preference|prioritization",
+     "recommended_answer": "..."}
   ]
 }
 ```
@@ -100,6 +101,28 @@ Write both files to the current working directory.
 """
 
 
+def _build_research_prompt(
+    repo_path: str,
+    feature_prompt: str,
+    codebase_profile: dict,
+    constraints: list[str],
+) -> str:
+    """Assemble the user prompt for the research stage."""
+    prompt_parts = [
+        "Research what is needed to build this feature"
+        f" into the codebase at: {repo_path}",
+        f"\nFEATURE: {feature_prompt}",
+        f"\nCODEBASE PROFILE:\n{json.dumps(codebase_profile, indent=2)}",
+    ]
+    if constraints:
+        prompt_parts.append(f"\nCONSTRAINTS: {'; '.join(constraints)}")
+    prompt_parts.append(
+        "\nExplore the actual codebase to validate and extend the profile. "
+        "Read key files. Understand the real patterns, not just the metadata."
+    )
+    return "\n".join(prompt_parts)
+
+
 async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: research what the feature needs given the codebase."""
     ui.stage_start("research")
@@ -110,28 +133,15 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     scope_path = state.get("scope_path", "")
     constraints = state.get("constraints", [])
 
-    research_cwd = repo_path
-    if scope_path:
-        scoped_dir = Path(repo_path) / scope_path
-        if scoped_dir.exists():
-            research_cwd = str(scoped_dir)
-
-    prompt_parts = [
-        f"Research what is needed to build this feature into the codebase at: {repo_path}",
-        f"\nFEATURE: {feature_prompt}",
-        f"\nCODEBASE PROFILE:\n{json.dumps(codebase_profile, indent=2)}",
-    ]
-    if constraints:
-        prompt_parts.append(f"\nCONSTRAINTS: {'; '.join(constraints)}")
-    prompt_parts.append(
-        "\nExplore the actual codebase to validate and extend the profile. "
-        "Read key files. Understand the real patterns, not just the metadata."
+    research_cwd = resolve_stage_cwd(repo_path, scope_path)
+    user_prompt = _build_research_prompt(
+        repo_path, feature_prompt, codebase_profile, constraints
     )
 
     result = await run_agent(
         persona="Staff Software Architect (Feature Specialist)",
         system_prompt=SYSTEM_PROMPT,
-        user_prompt="\n".join(prompt_parts),
+        user_prompt=user_prompt,
         cwd=research_cwd,
         project_dir=project_dir,
         stage="research",
@@ -142,12 +152,10 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read agent outputs
-    report_path = Path(research_cwd) / "research_report.md"
-    if not report_path.exists():
-        report_path = Path(repo_path) / "research_report.md"
-    assessment_path = Path(research_cwd) / "technical_assessment.json"
-    if not assessment_path.exists():
-        assessment_path = Path(repo_path) / "technical_assessment.json"
+    report_path = find_artifact("research_report.md", research_cwd, repo_path)
+    assessment_path = find_artifact(
+        "technical_assessment.json", research_cwd, repo_path
+    )
 
     research_report = report_path.read_text() if report_path.exists() else result.text
     save_artifact(project_dir, "research_report.md", research_report)
@@ -168,18 +176,16 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     open_questions = technical_assessment.get("open_questions", [])
     if open_questions:
         ui.info(
-            f"Research identified {len(open_questions)} open question(s) for the Grill phase."
+            f"Research identified {len(open_questions)}"
+            " open question(s) for the Grill phase."
         )
 
     # Clean up
-    for p in [
-        Path(research_cwd) / "research_report.md",
-        Path(research_cwd) / "technical_assessment.json",
-        Path(repo_path) / "research_report.md",
-        Path(repo_path) / "technical_assessment.json",
-    ]:
-        if p.exists():
-            p.unlink()
+    cleanup_artifacts(
+        research_cwd,
+        repo_path,
+        ["research_report.md", "technical_assessment.json"],
+    )
 
     mark_stage_complete(project_dir, "research")
     ui.stage_done("research")

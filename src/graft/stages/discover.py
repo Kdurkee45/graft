@@ -11,15 +11,16 @@ modules and warns if coverage is thin.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
+from graft.stages._helpers import cleanup_artifacts, find_artifact, resolve_stage_cwd
 from graft.state import FeatureState
 from graft.ui import UI
 
-SYSTEM_PROMPT = """You are a Principal Codebase Archaeologist with deep expertise in understanding
+SYSTEM_PROMPT = """\
+You are a Principal Codebase Archaeologist with deep expertise in understanding
 existing software systems. Your job is to build a complete mental model of a
 codebase — architecture, patterns, data model, conventions, and test
 infrastructure.
@@ -130,26 +131,15 @@ Write both files to the current working directory. Be thorough.
 """
 
 
-async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
-    """LangGraph node: discover the codebase architecture and patterns."""
-    ui.stage_start("discover")
-    repo_path = state["repo_path"]
-    project_dir = state["project_dir"]
-    scope_path = state.get("scope_path", "")
-    feature_prompt = state.get("feature_prompt", "")
-
-    discover_cwd = repo_path
-    if scope_path:
-        scoped_dir = Path(repo_path) / scope_path
-        if scoped_dir.exists():
-            discover_cwd = str(scoped_dir)
-
+def _build_discover_prompt(repo_path: str, scope_path: str, feature_prompt: str) -> str:
+    """Assemble the user prompt for the discover stage."""
     prompt_parts = [
         f"Discover and map the codebase at: {repo_path}",
     ]
     if scope_path:
         prompt_parts.append(
-            f"\nSCOPE: Focus primarily on '{scope_path}/' but understand the full project context."
+            f"\nSCOPE: Focus primarily on '{scope_path}/'"
+            f" but understand the full project context."
         )
     if feature_prompt:
         prompt_parts.append(
@@ -161,11 +151,24 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     prompt_parts.append(
         "\nProduce a comprehensive discovery report and codebase profile."
     )
+    return "\n".join(prompt_parts)
+
+
+async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
+    """LangGraph node: discover the codebase architecture and patterns."""
+    ui.stage_start("discover")
+    repo_path = state["repo_path"]
+    project_dir = state["project_dir"]
+    scope_path = state.get("scope_path", "")
+    feature_prompt = state.get("feature_prompt", "")
+
+    discover_cwd = resolve_stage_cwd(repo_path, scope_path)
+    user_prompt = _build_discover_prompt(repo_path, scope_path, feature_prompt)
 
     result = await run_agent(
         persona="Principal Codebase Archaeologist",
         system_prompt=SYSTEM_PROMPT,
-        user_prompt="\n".join(prompt_parts),
+        user_prompt=user_prompt,
         cwd=discover_cwd,
         project_dir=project_dir,
         stage="discover",
@@ -176,12 +179,8 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read agent outputs
-    report_path = Path(discover_cwd) / "discovery_report.md"
-    if not report_path.exists():
-        report_path = Path(repo_path) / "discovery_report.md"
-    profile_path = Path(discover_cwd) / "codebase_profile.json"
-    if not profile_path.exists():
-        profile_path = Path(repo_path) / "codebase_profile.json"
+    report_path = find_artifact("discovery_report.md", discover_cwd, repo_path)
+    profile_path = find_artifact("codebase_profile.json", discover_cwd, repo_path)
 
     discovery_report = report_path.read_text() if report_path.exists() else result.text
     save_artifact(project_dir, "discovery_report.md", discovery_report)
@@ -203,14 +202,11 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         ui.coverage_warning(coverage_warnings)
 
     # Clean up — don't leave artifacts in the repo
-    for p in [
-        Path(discover_cwd) / "discovery_report.md",
-        Path(discover_cwd) / "codebase_profile.json",
-        Path(repo_path) / "discovery_report.md",
-        Path(repo_path) / "codebase_profile.json",
-    ]:
-        if p.exists():
-            p.unlink()
+    cleanup_artifacts(
+        discover_cwd,
+        repo_path,
+        ["discovery_report.md", "codebase_profile.json"],
+    )
 
     mark_stage_complete(project_dir, "discover")
     ui.stage_done("discover")

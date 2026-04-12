@@ -57,6 +57,7 @@ class FeatureState(TypedDict, total=False):
 
     # -- Gates
     plan_approved: Annotated[bool, _replace_bool]
+    plan_feedback: Annotated[str, _replace]
     grill_complete: Annotated[bool, _replace_bool]
     research_redo_needed: Annotated[bool, _replace_bool]
 

@@ -25,7 +25,10 @@ _PIPELINE_OVERHEAD = (3.00, 8.00)  # Discovery + Research + Grill + Verify
 
 
 def estimate_cost(plan: list[dict]) -> tuple[float, float]:
-    """Estimate the token cost range for executing a plan. Returns (low, high) in USD."""
+    """Estimate the token cost range for executing a plan.
+
+    Returns (low, high) in USD.
+    """
     low = _PIPELINE_OVERHEAD[0]
     high = _PIPELINE_OVERHEAD[1]
     for unit in plan:
@@ -36,7 +39,8 @@ def estimate_cost(plan: list[dict]) -> tuple[float, float]:
     return round(low, 2), round(high, 2)
 
 
-SYSTEM_PROMPT = """You are a Staff Software Architect specializing in implementation planning.
+SYSTEM_PROMPT = """\
+You are a Staff Software Architect specializing in implementation planning.
 
 You have full context:
 - Codebase profile (architecture, patterns, conventions)
@@ -199,9 +203,8 @@ async def plan_review_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         ui.info("Plan approved — proceeding to execute.")
         return {"plan_approved": True}
     else:
-        ui.info(f"Plan feedback received: {feedback}")
-        ui.info("Re-planning is not yet implemented — proceeding with current plan.")
-        return {"plan_approved": True}
+        ui.info(f"Plan rejected — re-planning with feedback: {feedback}")
+        return {"plan_approved": False, "plan_feedback": feedback}
 
 
 def plan_review_router(state: FeatureState) -> str:

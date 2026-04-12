@@ -16,7 +16,10 @@ from graft.ui import UI
 
 app = typer.Typer(
     name="graft",
-    help="AI-powered feature building — discover, research, grill, plan, execute, verify, and open a PR.",
+    help=(
+        "AI-powered feature building — discover, research,"
+        " grill, plan, execute, verify, and open a PR."
+    ),
     add_completion=False,
 )
 
