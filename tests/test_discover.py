@@ -554,7 +554,7 @@ class TestPromptConstruction:
     """Verify the exact prompt composition logic."""
 
     async def test_minimal_prompt_no_scope_no_feature(self, repo, project, ui):
-        """Without scope_path or feature_prompt, prompt has only repo path and closing."""
+        """Without scope_path or feature_prompt, prompt has only repo path."""
         with patch(
             "graft.stages.discover.run_agent", new_callable=AsyncMock
         ) as mock_run:

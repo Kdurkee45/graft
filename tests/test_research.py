@@ -107,7 +107,7 @@ class TestResearchNodeHappyPath:
     """Core happy-path tests where agent produces valid outputs."""
 
     async def test_returns_expected_keys(self, repo, project, ui):
-        """research_node returns technical_assessment, research_report, current_stage."""
+        """research_node returns assessment, report, and current_stage."""
         (repo / "technical_assessment.json").write_text(json.dumps(VALID_ASSESSMENT))
         (repo / "research_report.md").write_text("# Research Report")
 
@@ -527,7 +527,7 @@ class TestErrorHandling:
     """Malformed outputs and edge cases."""
 
     async def test_malformed_json_assessment(self, repo, project, ui):
-        """Invalid JSON in technical_assessment.json -> ui.error, empty dict returned."""
+        """Invalid JSON in assessment file -> ui.error, empty dict."""
         (repo / "technical_assessment.json").write_text("NOT VALID JSON {{{")
         (repo / "research_report.md").write_text("ok")
 
