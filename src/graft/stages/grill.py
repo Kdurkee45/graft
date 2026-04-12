@@ -10,11 +10,11 @@ This is the primary human touchpoint — efficient Q&A, not document writing.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
+from graft.stages._helpers import cleanup_artifacts, find_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -157,7 +157,7 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read compiled spec
-    spec_path = Path(repo_path) / "feature_spec.json"
+    spec_path = find_artifact("feature_spec.json", repo_path, repo_path)
     feature_spec: dict = {}
     if spec_path.exists():
         try:
@@ -166,8 +166,7 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
             ui.error("Failed to parse feature_spec.json.")
 
     save_artifact(project_dir, "feature_spec.json", json.dumps(feature_spec, indent=2))
-    if spec_path.exists():
-        spec_path.unlink()
+    cleanup_artifacts(repo_path, repo_path, ["feature_spec.json"])
 
     # Check if Research needs a redo (rare — only if a fundamental assumption was wrong)
     research_redo = feature_spec.get("research_redo_needed", False)
@@ -237,11 +236,11 @@ async def _generate_questions(
         allowed_tools=["Read", "Write", "Bash", "Glob", "Grep"],
     )
 
-    questions_path = Path(repo_path) / "open_questions.json"
+    questions_path = find_artifact("open_questions.json", repo_path, repo_path)
     if questions_path.exists():
         try:
             questions = json.loads(questions_path.read_text())
-            questions_path.unlink()
+            cleanup_artifacts(repo_path, repo_path, ["open_questions.json"])
             return questions if isinstance(questions, list) else []
         except json.JSONDecodeError:
             pass

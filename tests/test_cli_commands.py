@@ -67,7 +67,7 @@ def mock_settings(monkeypatch):
 
 @pytest.fixture
 def mock_graph():
-    """Patch build_graph to return a mock compiled graph whose ainvoke returns a result dict."""
+    """Patch build_graph so its mock compiled graph returns a result dict."""
     compiled = MagicMock()
     compiled.ainvoke = MagicMock(
         return_value={"pr_url": "https://github.com/org/repo/pull/42"}
@@ -249,7 +249,7 @@ class TestBuildFlags:
     def test_verbose_flag(
         self, mock_settings, fake_repo, mock_create_project, mock_graph
     ):
-        """--verbose / -v is passed through to UI (and doesn't affect state directly)."""
+        """--verbose / -v is passed through to UI, not state."""
         result = runner.invoke(
             app,
             ["build", str(fake_repo), "Add tests", "-v"],

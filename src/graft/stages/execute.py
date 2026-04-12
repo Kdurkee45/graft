@@ -150,6 +150,112 @@ def _order_by_dependencies(plan: list[dict]) -> list[dict]:
     return ordered
 
 
+async def _execute_unit(
+    unit: dict,
+    index: int,
+    total: int,
+    repo_path: str,
+    project_dir: str,
+    ui: UI,
+    model: str | None,
+    max_turns: int,
+    completed_ids: set[str],
+) -> tuple[str, dict]:
+    """Execute a single build unit. Returns (status, result_dict)."""
+    unit_id = unit.get("unit_id", f"feat_{index:02d}")
+    title = unit.get("title", "Untitled")
+    description = unit.get("description", title)
+    pattern_ref = unit.get("pattern_reference", "")
+    tests_included = unit.get("tests_included", False)
+    acceptance_criteria = unit.get("acceptance_criteria", [])
+
+    # Check dependencies
+    deps = unit.get("depends_on", [])
+    unmet = [d for d in deps if d not in completed_ids]
+    if unmet:
+        ui.unit_reverted(unit_id, f"Unmet dependencies: {', '.join(unmet)}")
+        return "skipped", {
+            "unit_id": unit_id,
+            "reason": f"Dependencies not met: {', '.join(unmet)}",
+        }
+
+    ui.unit_start(unit_id, title, index, total)
+
+    # Build the prompt
+    prompt_parts = [
+        f"BUILD TASK: {title}",
+        f"\nDESCRIPTION:\n{description}",
+        "\nACCEPTANCE CRITERIA:",
+        *[f"- {c}" for c in acceptance_criteria],
+    ]
+    if pattern_ref:
+        prompt_parts.append(
+            f"\nPATTERN REFERENCE: {pattern_ref}\n"
+            "Read this file FIRST. Follow its conventions exactly."
+        )
+    if tests_included:
+        prompt_parts.append(
+            "\nTESTS: Write co-located tests for this unit. "
+            "Follow the project's existing test patterns."
+        )
+    prompt_parts.append(f"\nWORKING DIRECTORY: {repo_path}")
+    prompt_parts.append("\nMake the change now. Be precise and surgical.")
+
+    try:
+        await run_agent(
+            persona=f"Principal Software Engineer [{unit_id}]",
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt="\n".join(prompt_parts),
+            cwd=repo_path,
+            project_dir=project_dir,
+            stage=f"execute_{unit_id}",
+            ui=ui,
+            model=model,
+            max_turns=max_turns,
+        )
+    except RuntimeError as exc:
+        ui.unit_reverted(unit_id, f"Agent failed: {exc}")
+        return "reverted", {"unit_id": unit_id, "reason": str(exc)}
+
+    # Commit
+    _git(repo_path, "add", "-A")
+    commit_result = _git(
+        repo_path,
+        "commit",
+        "-m",
+        f"feat: {title}",
+        check=False,
+    )
+    if commit_result.returncode != 0:
+        ui.unit_reverted(unit_id, "No changes made")
+        return "reverted", {"unit_id": unit_id, "reason": "No changes produced"}
+
+    # Test
+    tests_passed, test_output = _run_tests(repo_path)
+    if not tests_passed:
+        _git(repo_path, "revert", "HEAD", "--no-edit")
+        ui.unit_reverted(unit_id, "Tests failed")
+        return "reverted", {
+            "unit_id": unit_id,
+            "reason": f"Tests failed: {test_output[:200]}",
+        }
+
+    # Lint (auto-fix and amend if needed)
+    lint_passed, lint_output = _run_lint(repo_path)
+    if lint_passed:
+        # Amend commit with any lint fixes
+        _git(repo_path, "add", "-A")
+        _git(repo_path, "commit", "--amend", "--no-edit", check=False)
+
+    ui.unit_kept(unit_id, "Implemented and passing")
+    return "completed", {
+        "unit_id": unit_id,
+        "title": title,
+        "category": unit.get("category", ""),
+        "tests_included": tests_included,
+    }
+
+
 async def execute_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: execute build units one at a time."""
     ui.stage_start("execute")
@@ -180,109 +286,24 @@ async def execute_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     completed_ids: set[str] = set()
 
     for i, unit in enumerate(ordered_plan, 1):
-        unit_id = unit.get("unit_id", f"feat_{i:02d}")
-        title = unit.get("title", "Untitled")
-        description = unit.get("description", title)
-        pattern_ref = unit.get("pattern_reference", "")
-        tests_included = unit.get("tests_included", False)
-        acceptance_criteria = unit.get("acceptance_criteria", [])
-
-        # Check dependencies
-        deps = unit.get("depends_on", [])
-        unmet = [d for d in deps if d not in completed_ids]
-        if unmet:
-            ui.unit_reverted(unit_id, f"Unmet dependencies: {', '.join(unmet)}")
-            units_skipped.append(
-                {
-                    "unit_id": unit_id,
-                    "reason": f"Dependencies not met: {', '.join(unmet)}",
-                }
-            )
-            continue
-
-        ui.unit_start(unit_id, title, i, len(ordered_plan))
-
-        # Build the prompt
-        prompt_parts = [
-            f"BUILD TASK: {title}",
-            f"\nDESCRIPTION:\n{description}",
-            "\nACCEPTANCE CRITERIA:",
-            *[f"- {c}" for c in acceptance_criteria],
-        ]
-        if pattern_ref:
-            prompt_parts.append(
-                f"\nPATTERN REFERENCE: {pattern_ref}\n"
-                "Read this file FIRST. Follow its conventions exactly."
-            )
-        if tests_included:
-            prompt_parts.append(
-                "\nTESTS: Write co-located tests for this unit. "
-                "Follow the project's existing test patterns."
-            )
-        prompt_parts.append(f"\nWORKING DIRECTORY: {repo_path}")
-        prompt_parts.append("\nMake the change now. Be precise and surgical.")
-
-        try:
-            await run_agent(
-                persona=f"Principal Software Engineer [{unit_id}]",
-                system_prompt=SYSTEM_PROMPT,
-                user_prompt="\n".join(prompt_parts),
-                cwd=repo_path,
-                project_dir=project_dir,
-                stage=f"execute_{unit_id}",
-                ui=ui,
-                model=state.get("model"),
-                max_turns=max_turns,
-            )
-        except RuntimeError as exc:
-            ui.unit_reverted(unit_id, f"Agent failed: {exc}")
-            units_reverted.append({"unit_id": unit_id, "reason": str(exc)})
-            continue
-
-        # Commit
-        _git(repo_path, "add", "-A")
-        commit_result = _git(
-            repo_path,
-            "commit",
-            "-m",
-            f"feat: {title}",
-            check=False,
+        status, result_dict = await _execute_unit(
+            unit=unit,
+            index=i,
+            total=len(ordered_plan),
+            repo_path=repo_path,
+            project_dir=project_dir,
+            ui=ui,
+            model=state.get("model"),
+            max_turns=max_turns,
+            completed_ids=completed_ids,
         )
-        if commit_result.returncode != 0:
-            ui.unit_reverted(unit_id, "No changes made")
-            units_reverted.append({"unit_id": unit_id, "reason": "No changes produced"})
-            continue
-
-        # Test
-        tests_passed, test_output = _run_tests(repo_path)
-        if not tests_passed:
-            _git(repo_path, "revert", "HEAD", "--no-edit")
-            ui.unit_reverted(unit_id, "Tests failed")
-            units_reverted.append(
-                {
-                    "unit_id": unit_id,
-                    "reason": f"Tests failed: {test_output[:200]}",
-                }
-            )
-            continue
-
-        # Lint (auto-fix and amend if needed)
-        lint_passed, lint_output = _run_lint(repo_path)
-        if lint_passed:
-            # Amend commit with any lint fixes
-            _git(repo_path, "add", "-A")
-            _git(repo_path, "commit", "--amend", "--no-edit", check=False)
-
-        ui.unit_kept(unit_id, "Implemented and passing")
-        completed_ids.add(unit_id)
-        units_completed.append(
-            {
-                "unit_id": unit_id,
-                "title": title,
-                "category": unit.get("category", ""),
-                "tests_included": tests_included,
-            }
-        )
+        if status == "completed":
+            completed_ids.add(result_dict["unit_id"])
+            units_completed.append(result_dict)
+        elif status == "skipped":
+            units_skipped.append(result_dict)
+        else:
+            units_reverted.append(result_dict)
 
     # Save execution log
     log = {
