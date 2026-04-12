@@ -210,7 +210,7 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
         if pattern_ref:
             prompt_parts.append(
                 f"\nPATTERN REFERENCE: {pattern_ref}\n"
-                f"Read this file FIRST. Follow its conventions exactly."
+                "Read this file FIRST. Follow its conventions exactly."
             )
         if tests_included:
             prompt_parts.append(
