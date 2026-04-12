@@ -19,30 +19,6 @@ async def async_read_text(path: Path) -> str:
     return await asyncio.to_thread(path.read_text)
 
 
-async def async_subprocess_run(
-    args: list[str],
-    *,
-    cwd: str | None = None,
-) -> asyncio.subprocess.Process:
-    """Run a subprocess without blocking the event loop.
-
-    Mirrors a ``subprocess.run(args, cwd=..., capture_output=True, text=True)``
-    call but uses :func:`asyncio.create_subprocess_exec` so the calling
-    coroutine can ``await`` it instead of blocking.
-
-    Returns the completed :class:`asyncio.subprocess.Process` after
-    ``communicate()`` has been called (stdout/stderr populated, returncode set).
-    """
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    await proc.communicate()
-    return proc
-
-
 def resolve_stage_cwd(repo_path: str, scope_path: str) -> str:
     """Return the working directory for a stage.
 
