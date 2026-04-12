@@ -12,7 +12,7 @@ from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
-from graft.stages._helpers import read_json_artifact
+from graft.stages._helpers import async_read_text
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -141,12 +141,16 @@ async def plan_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     plan_path = Path(repo_path) / "build_plan.json"
-    if not plan_path.exists():
+    build_plan: list[dict] = []
+    plan_raw: dict = {}
+    if plan_path.exists():
+        try:
+            plan_raw = json.loads(await async_read_text(plan_path))
+            build_plan = plan_raw.get("units", [])
+        except json.JSONDecodeError:
+            ui.error("Failed to parse build_plan.json — using empty plan.")
+    else:
         ui.error("Agent did not produce build_plan.json.")
-    plan_raw = await read_json_artifact(
-        "build_plan.json", repo_path, repo_path, ui=ui
-    )
-    build_plan = plan_raw.get("units", [])
 
     save_artifact(project_dir, "build_plan.json", json.dumps(plan_raw, indent=2))
     if plan_path.exists():

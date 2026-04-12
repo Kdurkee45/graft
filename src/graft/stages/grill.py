@@ -14,12 +14,7 @@ from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
-from graft.stages._helpers import (
-    async_read_text,
-    cleanup_artifacts,
-    find_artifact,
-    read_json_artifact,
-)
+from graft.stages._helpers import async_read_text, cleanup_artifacts, find_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -162,9 +157,14 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read compiled spec
-    feature_spec = await read_json_artifact(
-        "feature_spec.json", repo_path, repo_path, ui=ui
-    )
+    spec_path = find_artifact("feature_spec.json", repo_path, repo_path)
+    feature_spec: dict = {}
+    if spec_path.exists():
+        try:
+            feature_spec = json.loads(await async_read_text(spec_path))
+        except json.JSONDecodeError:
+            ui.error("Failed to parse feature_spec.json.")
+
     save_artifact(project_dir, "feature_spec.json", json.dumps(feature_spec, indent=2))
     cleanup_artifacts(repo_path, repo_path, ["feature_spec.json"])
 
