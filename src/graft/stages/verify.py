@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_project_done, mark_stage_complete, save_artifact
+from graft.stages._helpers import cleanup_artifacts, find_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -137,11 +137,10 @@ async def verify_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read report
-    report_path = Path(repo_path) / "feature_report.md"
+    report_path = find_artifact("feature_report.md", repo_path, repo_path)
     feature_report = report_path.read_text() if report_path.exists() else result.text
     save_artifact(project_dir, "feature_report.md", feature_report)
-    if report_path.exists():
-        report_path.unlink()
+    cleanup_artifacts(repo_path, repo_path, ["feature_report.md"])
 
     # Open PR
     branch = state.get("feature_branch", "")
