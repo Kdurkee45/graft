@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
+      - name: Dependency vulnerability scan
+        run: uv run pip-audit
+
       - name: Lint
         run: uv run ruff check .
 
