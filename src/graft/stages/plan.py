@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
@@ -93,7 +94,7 @@ Write the file to the current working directory.
 """
 
 
-async def plan_node(state: FeatureState, ui: UI) -> dict:
+async def plan_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: generate the build plan."""
     ui.stage_start("plan")
     repo_path = state["repo_path"]
@@ -121,7 +122,7 @@ async def plan_node(state: FeatureState, ui: UI) -> dict:
         "Read actual files to ensure references are valid."
     )
 
-    result = await run_agent(
+    await run_agent(
         persona="Staff Software Architect (Implementation Planner)",
         system_prompt=SYSTEM_PROMPT,
         user_prompt="\n".join(prompt_parts),
@@ -159,7 +160,7 @@ async def plan_node(state: FeatureState, ui: UI) -> dict:
     }
 
 
-async def plan_review_node(state: FeatureState, ui: UI) -> dict:
+async def plan_review_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """Human gate: review and optionally adjust the build plan."""
     plan = state.get("build_plan", [])
     auto_approve = state.get("auto_approve", False)

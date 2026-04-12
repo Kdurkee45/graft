@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
+from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
@@ -149,14 +149,12 @@ def _order_by_dependencies(plan: list[dict]) -> list[dict]:
     return ordered
 
 
-async def execute_node(state: FeatureState, ui: UI) -> dict:
+async def execute_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: execute build units one at a time."""
     ui.stage_start("execute")
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     plan = state.get("build_plan", [])
-    codebase_profile = state.get("codebase_profile", {})
-    feature_spec = state.get("feature_spec", {})
     max_turns = state.get("max_agent_turns", 50)
 
     if not plan:
@@ -207,18 +205,18 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
         prompt_parts = [
             f"BUILD TASK: {title}",
             f"\nDESCRIPTION:\n{description}",
-            f"\nACCEPTANCE CRITERIA:",
+            "\nACCEPTANCE CRITERIA:",
             *[f"- {c}" for c in acceptance_criteria],
         ]
         if pattern_ref:
             prompt_parts.append(
                 f"\nPATTERN REFERENCE: {pattern_ref}\n"
-                f"Read this file FIRST. Follow its conventions exactly."
+                "Read this file FIRST. Follow its conventions exactly."
             )
         if tests_included:
             prompt_parts.append(
-                f"\nTESTS: Write co-located tests for this unit. "
-                f"Follow the project's existing test patterns."
+                "\nTESTS: Write co-located tests for this unit. "
+                "Follow the project's existing test patterns."
             )
         prompt_parts.append(f"\nWORKING DIRECTORY: {repo_path}")
         prompt_parts.append("\nMake the change now. Be precise and surgical.")

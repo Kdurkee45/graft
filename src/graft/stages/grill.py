@@ -10,9 +10,11 @@ This is the primary human touchpoint — efficient Q&A, not document writing.
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
 
 from graft.agent import run_agent
-from graft.artifacts import load_artifact, mark_stage_complete, save_artifact
+from graft.artifacts import mark_stage_complete, save_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -67,7 +69,7 @@ Write the file to the current working directory.
 """
 
 
-async def grill_node(state: FeatureState, ui: UI) -> dict:
+async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: interrogate the human for intent, preferences, edge cases."""
     ui.stage_start("grill")
     repo_path = state["repo_path"]
@@ -140,8 +142,6 @@ async def grill_node(state: FeatureState, ui: UI) -> dict:
         f"Write feature_spec.json to the working directory."
     )
 
-    from pathlib import Path
-
     await run_agent(
         persona="Principal Product Architect",
         system_prompt=COMPILE_SYSTEM_PROMPT,
@@ -204,8 +204,6 @@ async def _generate_questions(
     model: str | None,
 ) -> list[dict]:
     """Generate open questions when Research didn't produce them."""
-    from pathlib import Path
-
     gen_prompt = (
         f"Generate focused questions for building this feature.\n\n"
         f"FEATURE: {feature_prompt}\n\n"
