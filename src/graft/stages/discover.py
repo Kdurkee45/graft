@@ -11,11 +11,11 @@ modules and warns if coverage is thin.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
+from graft.stages._helpers import cleanup_artifacts, find_artifact, resolve_stage_cwd
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -139,11 +139,7 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     scope_path = state.get("scope_path", "")
     feature_prompt = state.get("feature_prompt", "")
 
-    discover_cwd = repo_path
-    if scope_path:
-        scoped_dir = Path(repo_path) / scope_path
-        if scoped_dir.exists():
-            discover_cwd = str(scoped_dir)
+    discover_cwd = resolve_stage_cwd(repo_path, scope_path)
 
     prompt_parts = [
         f"Discover and map the codebase at: {repo_path}",
@@ -178,12 +174,8 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read agent outputs
-    report_path = Path(discover_cwd) / "discovery_report.md"
-    if not report_path.exists():
-        report_path = Path(repo_path) / "discovery_report.md"
-    profile_path = Path(discover_cwd) / "codebase_profile.json"
-    if not profile_path.exists():
-        profile_path = Path(repo_path) / "codebase_profile.json"
+    report_path = find_artifact("discovery_report.md", discover_cwd, repo_path)
+    profile_path = find_artifact("codebase_profile.json", discover_cwd, repo_path)
 
     discovery_report = report_path.read_text() if report_path.exists() else result.text
     save_artifact(project_dir, "discovery_report.md", discovery_report)
@@ -205,14 +197,11 @@ async def discover_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         ui.coverage_warning(coverage_warnings)
 
     # Clean up — don't leave artifacts in the repo
-    for p in [
-        Path(discover_cwd) / "discovery_report.md",
-        Path(discover_cwd) / "codebase_profile.json",
-        Path(repo_path) / "discovery_report.md",
-        Path(repo_path) / "codebase_profile.json",
-    ]:
-        if p.exists():
-            p.unlink()
+    cleanup_artifacts(
+        discover_cwd,
+        repo_path,
+        ["discovery_report.md", "codebase_profile.json"],
+    )
 
     mark_stage_complete(project_dir, "discover")
     ui.stage_done("discover")

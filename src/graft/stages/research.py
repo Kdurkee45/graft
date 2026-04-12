@@ -8,11 +8,11 @@ pattern matching, edge cases, and open questions for the Grill phase.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
+from graft.stages._helpers import cleanup_artifacts, find_artifact, resolve_stage_cwd
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -111,11 +111,7 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     scope_path = state.get("scope_path", "")
     constraints = state.get("constraints", [])
 
-    research_cwd = repo_path
-    if scope_path:
-        scoped_dir = Path(repo_path) / scope_path
-        if scoped_dir.exists():
-            research_cwd = str(scoped_dir)
+    research_cwd = resolve_stage_cwd(repo_path, scope_path)
 
     prompt_parts = [
         "Research what is needed to build this feature"
@@ -144,12 +140,10 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     )
 
     # Read agent outputs
-    report_path = Path(research_cwd) / "research_report.md"
-    if not report_path.exists():
-        report_path = Path(repo_path) / "research_report.md"
-    assessment_path = Path(research_cwd) / "technical_assessment.json"
-    if not assessment_path.exists():
-        assessment_path = Path(repo_path) / "technical_assessment.json"
+    report_path = find_artifact("research_report.md", research_cwd, repo_path)
+    assessment_path = find_artifact(
+        "technical_assessment.json", research_cwd, repo_path
+    )
 
     research_report = report_path.read_text() if report_path.exists() else result.text
     save_artifact(project_dir, "research_report.md", research_report)
@@ -175,14 +169,11 @@ async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         )
 
     # Clean up
-    for p in [
-        Path(research_cwd) / "research_report.md",
-        Path(research_cwd) / "technical_assessment.json",
-        Path(repo_path) / "research_report.md",
-        Path(repo_path) / "technical_assessment.json",
-    ]:
-        if p.exists():
-            p.unlink()
+    cleanup_artifacts(
+        research_cwd,
+        repo_path,
+        ["research_report.md", "technical_assessment.json"],
+    )
 
     mark_stage_complete(project_dir, "research")
     ui.stage_done("research")
