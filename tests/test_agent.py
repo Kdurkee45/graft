@@ -214,8 +214,8 @@ class TestRunAgentSuccess:
 
         with (
             patch("graft.agent.query", return_value=_async_iter([msg])),
-            patch("graft.agent.ClaudeAgentOptions") as mock_opts,
-            patch("graft.agent.artifacts") as mock_artifacts,
+            patch("graft.agent.ClaudeAgentOptions"),
+            patch("graft.agent.artifacts"),
         ):
             result = await run_agent(**_common_kwargs(project_dir, ui))
 

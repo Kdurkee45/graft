@@ -154,8 +154,6 @@ async def execute_node(state: FeatureState, ui: UI) -> dict:
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
     plan = state.get("build_plan", [])
-    codebase_profile = state.get("codebase_profile", {})
-    feature_spec = state.get("feature_spec", {})
     max_turns = state.get("max_agent_turns", 50)
 
     if not plan:

@@ -121,7 +121,7 @@ async def plan_node(state: FeatureState, ui: UI) -> dict:
         "Read actual files to ensure references are valid."
     )
 
-    result = await run_agent(
+    await run_agent(
         persona="Staff Software Architect (Implementation Planner)",
         system_prompt=SYSTEM_PROMPT,
         user_prompt="\n".join(prompt_parts),

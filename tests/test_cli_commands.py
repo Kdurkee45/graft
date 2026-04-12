@@ -591,7 +591,7 @@ class TestListCommand:
                 "created_at": "2025-01-02T00:00:00",
             },
         ]
-        with patch("graft.cli.list_projects", return_value=projects) as lp:
+        with patch("graft.cli.list_projects", return_value=projects):
             with patch("graft.cli.UI") as MockUI:
                 ui_inst = MagicMock()
                 MockUI.return_value = ui_inst
