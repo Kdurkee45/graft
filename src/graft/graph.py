@@ -26,8 +26,12 @@ from graft.state import FeatureState
 from graft.ui import UI
 
 
-def _wrap(fn, ui: UI):
-    """Wrap a node function so it receives the shared UI instance."""
+def _wrap(fn: Callable[..., Any], ui: UI) -> Any:
+    """Wrap a node function so it receives the shared UI instance.
+
+    Returns Any because LangGraph's add_node has complex overloaded
+    type signatures that don't accept a plain Callable return type.
+    """
 
     @functools.wraps(fn)
     async def wrapper(state: FeatureState) -> dict[str, Any]:
