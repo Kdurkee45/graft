@@ -14,7 +14,7 @@ from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
-from graft.stages._helpers import cleanup_artifacts, find_artifact
+from graft.stages._helpers import async_read_text, cleanup_artifacts, find_artifact
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -161,7 +161,7 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     feature_spec: dict = {}
     if spec_path.exists():
         try:
-            feature_spec = json.loads(spec_path.read_text())
+            feature_spec = json.loads(await async_read_text(spec_path))
         except json.JSONDecodeError:
             ui.error("Failed to parse feature_spec.json.")
 
@@ -239,7 +239,7 @@ async def _generate_questions(
     questions_path = find_artifact("open_questions.json", repo_path, repo_path)
     if questions_path.exists():
         try:
-            questions = json.loads(questions_path.read_text())
+            questions = json.loads(await async_read_text(questions_path))
             cleanup_artifacts(repo_path, repo_path, ["open_questions.json"])
             return questions if isinstance(questions, list) else []
         except json.JSONDecodeError:

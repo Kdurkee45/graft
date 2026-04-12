@@ -12,6 +12,7 @@ from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
+from graft.stages._helpers import async_read_text
 from graft.state import FeatureState
 from graft.ui import UI
 
@@ -144,7 +145,7 @@ async def plan_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     plan_raw: dict = {}
     if plan_path.exists():
         try:
-            plan_raw = json.loads(plan_path.read_text())
+            plan_raw = json.loads(await async_read_text(plan_path))
             build_plan = plan_raw.get("units", [])
         except json.JSONDecodeError:
             ui.error("Failed to parse build_plan.json — using empty plan.")
