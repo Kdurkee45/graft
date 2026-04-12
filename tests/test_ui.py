@@ -1,6 +1,6 @@
 """Tests for graft.ui."""
 
-from graft.ui import STAGE_LABELS, STAGE_ORDER, UI
+from graft.ui import STAGE_LABELS, UI
 
 
 def test_stage_labels_match_pipeline():
