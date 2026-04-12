@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
@@ -148,7 +149,7 @@ def _order_by_dependencies(plan: list[dict]) -> list[dict]:
     return ordered
 
 
-async def execute_node(state: FeatureState, ui: UI) -> dict:
+async def execute_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: execute build units one at a time."""
     ui.stage_start("execute")
     repo_path = state["repo_path"]

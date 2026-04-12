@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
@@ -68,7 +69,7 @@ Write the file to the current working directory.
 """
 
 
-async def grill_node(state: FeatureState, ui: UI) -> dict:
+async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: interrogate the human for intent, preferences, edge cases."""
     ui.stage_start("grill")
     repo_path = state["repo_path"]

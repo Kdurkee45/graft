@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_stage_complete, save_artifact
@@ -99,7 +100,7 @@ Write both files to the current working directory.
 """
 
 
-async def research_node(state: FeatureState, ui: UI) -> dict:
+async def research_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: research what the feature needs given the codebase."""
     ui.stage_start("research")
     repo_path = state["repo_path"]

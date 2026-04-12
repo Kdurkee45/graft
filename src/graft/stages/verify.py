@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from graft.agent import run_agent
 from graft.artifacts import mark_project_done, mark_stage_complete, save_artifact
@@ -93,7 +94,7 @@ def _open_pr(repo_path: str, branch: str, title: str, body: str) -> str | None:
         return None
 
 
-async def verify_node(state: FeatureState, ui: UI) -> dict:
+async def verify_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: validate the feature, run regression, and open the PR."""
     ui.stage_start("verify")
     repo_path = state["repo_path"]
