@@ -8,7 +8,9 @@ import pytest
 
 from graft.stages.grill import (
     COMPILE_SYSTEM_PROMPT,
-    _generate_questions,
+    CONVERSATION_SYSTEM_PROMPT,
+    _build_history_prompt,
+    _parse_agent_response,
     grill_node,
     grill_router,
 )
@@ -27,6 +29,36 @@ class FakeAgentResult:
     raw_messages: list = field(default_factory=list)
     elapsed_seconds: float = 1.0
     turns_used: int = 5
+
+
+def _question_json(
+    question: str,
+    category: str = "intent",
+    recommended: str = "Yes",
+    why_asking: str = "Need to know",
+) -> str:
+    """Return a JSON string for a question response."""
+    return json.dumps({
+        "status": "question",
+        "question": question,
+        "category": category,
+        "recommended_answer": recommended,
+        "why_asking": why_asking,
+    })
+
+
+def _done_json(
+    summary: str = "Feature is well understood.",
+    assumptions: list[str] | None = None,
+    confidence: str = "high",
+) -> str:
+    """Return a JSON string for a done response."""
+    return json.dumps({
+        "status": "done",
+        "summary": summary,
+        "assumptions": assumptions or [],
+        "confidence": confidence,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -66,19 +98,6 @@ def ui():
     return m
 
 
-SAMPLE_QUESTIONS = [
-    {
-        "question": "Should dark mode persist across sessions?",
-        "category": "intent",
-        "recommended_answer": "Yes, store in localStorage",
-    },
-    {
-        "question": "Support system preference detection?",
-        "category": "preference",
-        "recommended_answer": "Yes, use prefers-color-scheme",
-    },
-]
-
 SAMPLE_SPEC = {
     "feature_name": "Dark Mode",
     "feature_prompt": "Add dark mode",
@@ -104,7 +123,7 @@ def _state(repo, project, **kw):
         "project_dir": str(project),
         "feature_prompt": "Add dark mode",
         "codebase_profile": {"project": {"name": "acme"}},
-        "technical_assessment": {"open_questions": SAMPLE_QUESTIONS},
+        "technical_assessment": {"risk": "low"},
     }
     base.update(kw)
     return base
@@ -115,8 +134,128 @@ def _write_spec(repo, spec=None):
     (repo / "feature_spec.json").write_text(json.dumps(spec or SAMPLE_SPEC, indent=2))
 
 
+def _make_conversation_side_effect(questions, done_text=None, spec_repo=None):
+    """Build a side_effect for run_agent that simulates a conversation.
+
+    *questions* is a list of JSON strings for question responses.
+    After all questions are asked, the next call returns *done_text*.
+    The final call (compile stage) returns a plain FakeAgentResult.
+    """
+    if done_text is None:
+        done_text = _done_json()
+
+    responses = [FakeAgentResult(text=q) for q in questions]
+    responses.append(FakeAgentResult(text=done_text))
+
+    call_idx = {"i": 0}
+
+    async def side_effect(**kwargs):
+        if kwargs.get("stage") == "grill_compile":
+            if spec_repo is not None:
+                _write_spec(spec_repo)
+            return FakeAgentResult()
+        idx = call_idx["i"]
+        call_idx["i"] += 1
+        if idx < len(responses):
+            return responses[idx]
+        return FakeAgentResult(text=done_text)
+
+    return side_effect
+
+
 # ---------------------------------------------------------------------------
-# grill_router (existing tests preserved)
+# _parse_agent_response
+# ---------------------------------------------------------------------------
+
+
+class TestParseAgentResponse:
+    """Tests for the JSON parsing helper."""
+
+    def test_plain_json(self):
+        data = _parse_agent_response('{"status": "done", "summary": "ok"}')
+        assert data["status"] == "done"
+        assert data["summary"] == "ok"
+
+    def test_json_in_code_fence(self):
+        text = '```json\n{"status": "question", "question": "Q?"}\n```'
+        data = _parse_agent_response(text)
+        assert data["status"] == "question"
+        assert data["question"] == "Q?"
+
+    def test_json_embedded_in_text(self):
+        text = 'Here is my response: {"status": "done", "summary": "all good"} end'
+        data = _parse_agent_response(text)
+        assert data["status"] == "done"
+
+    def test_garbage_returns_error(self):
+        data = _parse_agent_response("not json at all")
+        assert data["status"] == "error"
+
+    def test_empty_string_returns_error(self):
+        data = _parse_agent_response("")
+        assert data["status"] == "error"
+
+
+# ---------------------------------------------------------------------------
+# _build_history_prompt
+# ---------------------------------------------------------------------------
+
+
+class TestBuildHistoryPrompt:
+    """Tests for the prompt builder."""
+
+    def test_includes_feature_prompt(self):
+        prompt = _build_history_prompt("Add SSO", {}, {}, [], [])
+        assert "FEATURE: Add SSO" in prompt
+
+    def test_includes_codebase_profile(self):
+        prompt = _build_history_prompt("feat", {"lang": "python"}, {}, [], [])
+        assert "CODEBASE PROFILE:" in prompt
+        assert "python" in prompt
+
+    def test_includes_technical_assessment(self):
+        prompt = _build_history_prompt("feat", {}, {"risk": "high"}, [], [])
+        assert "TECHNICAL ASSESSMENT:" in prompt
+        assert "high" in prompt
+
+    def test_includes_constraints(self):
+        prompt = _build_history_prompt("feat", {}, {}, ["no deps", "must test"], [])
+        assert "CONSTRAINTS: no deps; must test" in prompt
+
+    def test_empty_constraints_omitted(self):
+        prompt = _build_history_prompt("feat", {}, {}, [], [])
+        assert "CONSTRAINTS" not in prompt
+
+    def test_includes_conversation_history(self):
+        history = [
+            {
+                "role": "agent",
+                "data": {
+                    "question": "Use websockets?",
+                    "category": "integration",
+                    "recommended_answer": "Yes",
+                    "why_asking": "Need realtime",
+                },
+                "turn": 1,
+            },
+            {"role": "user", "answer": "No, use polling"},
+        ]
+        prompt = _build_history_prompt("feat", {}, {}, [], history)
+        assert "CONVERSATION SO FAR:" in prompt
+        assert "Use websockets?" in prompt
+        assert "No, use polling" in prompt
+
+    def test_empty_history_no_conversation_section(self):
+        prompt = _build_history_prompt("feat", {}, {}, [], [])
+        assert "CONVERSATION SO FAR:" not in prompt
+
+    def test_ends_with_next_question_instruction(self):
+        prompt = _build_history_prompt("feat", {}, {}, [], [])
+        assert "Ask your next question" in prompt
+
+
+# ---------------------------------------------------------------------------
+# grill_router (preserved)
 # ---------------------------------------------------------------------------
 
 
@@ -145,9 +284,14 @@ class TestGrillNodeHappyPath:
 
     async def test_returns_expected_keys(self, repo, project, ui):
         """grill_node returns feature_spec, grill_transcript, etc."""
+        questions = [
+            _question_json("Should dark mode persist?", "intent",
+                           "Yes, store in localStorage", "Critical for UX"),
+        ]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             result = await grill_node(_state(repo, project), ui)
 
         assert set(result.keys()) == {
@@ -161,8 +305,7 @@ class TestGrillNodeHappyPath:
     async def test_current_stage_is_grill(self, repo, project, ui):
         """current_stage is set to 'grill'."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             result = await grill_node(_state(repo, project), ui)
 
         assert result["current_stage"] == "grill"
@@ -170,17 +313,20 @@ class TestGrillNodeHappyPath:
     async def test_grill_complete_is_true(self, repo, project, ui):
         """grill_complete flag is always True on success."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             result = await grill_node(_state(repo, project), ui)
 
         assert result["grill_complete"] is True
 
     async def test_feature_spec_parsed(self, repo, project, ui):
         """Valid feature_spec.json is parsed into the returned dict."""
+        questions = [
+            _question_json("Q1?", "intent", "rec1", "why1"),
+        ]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             result = await grill_node(_state(repo, project), ui)
 
         assert result["feature_spec"] == SAMPLE_SPEC
@@ -188,22 +334,28 @@ class TestGrillNodeHappyPath:
 
     async def test_grill_transcript_built(self, repo, project, ui):
         """Transcript contains Q&A lines for each question."""
+        questions = [
+            _question_json("Should dark mode persist?", "intent",
+                           "Yes, store in localStorage", "Critical"),
+            _question_json("Support system preference?", "preference",
+                           "Yes, use prefers-color-scheme", "UX decision"),
+        ]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             result = await grill_node(_state(repo, project), ui)
 
         transcript = result["grill_transcript"]
-        assert "Q1 [intent]:" in transcript
-        assert "Q2 [preference]:" in transcript
+        assert "Q1 [intent]" in transcript
+        assert "Q2 [preference]" in transcript
         assert "Should dark mode persist" in transcript
         assert "user answer" in transcript
 
     async def test_ui_lifecycle(self, repo, project, ui):
         """stage_start and stage_done are called in order."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(_state(repo, project), ui)
 
         ui.stage_start.assert_called_once_with("grill")
@@ -212,8 +364,7 @@ class TestGrillNodeHappyPath:
     async def test_marks_stage_complete(self, repo, project, ui):
         """Stage 'grill' is recorded in metadata after success."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(_state(repo, project), ui)
 
         meta = json.loads((project / "metadata.json").read_text())
@@ -229,116 +380,178 @@ class TestGrillNodeQuestionIteration:
     """Verify question walking and UI calls."""
 
     async def test_grill_question_called_per_question(self, repo, project, ui):
-        """ui.grill_question is called once per open question."""
+        """ui.grill_question is called once per question before done."""
+        questions = [
+            _question_json("Q1?", "intent", "rec1", "why1"),
+            _question_json("Q2?", "preference", "rec2", "why2"),
+        ]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             await grill_node(_state(repo, project), ui)
 
         assert ui.grill_question.call_count == 2
 
     async def test_grill_question_args(self, repo, project, ui):
-        """ui.grill_question receives correct arguments for each question."""
+        """ui.grill_question receives correct keyword arguments."""
+        questions = [
+            _question_json("Should dark mode persist across sessions?",
+                           "intent", "Yes, store in localStorage",
+                           "Critical for UX"),
+            _question_json("Support system preference detection?",
+                           "preference", "Yes, use prefers-color-scheme",
+                           "User expectations"),
+        ]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             await grill_node(_state(repo, project), ui)
 
         first_call = ui.grill_question.call_args_list[0]
         assert first_call == call(
-            "Should dark mode persist across sessions?",
-            "Yes, store in localStorage",
-            "intent",
-            1,
+            question="Should dark mode persist across sessions?",
+            recommended="Yes, store in localStorage",
+            category="intent",
+            number=1,
+            why_asking="Critical for UX",
         )
         second_call = ui.grill_question.call_args_list[1]
         assert second_call == call(
-            "Support system preference detection?",
-            "Yes, use prefers-color-scheme",
-            "preference",
-            2,
+            question="Support system preference detection?",
+            recommended="Yes, use prefers-color-scheme",
+            category="preference",
+            number=2,
+            why_asking="User expectations",
         )
 
     async def test_transcript_line_format(self, repo, project, ui):
-        """Transcript lines follow the expected format."""
+        """Transcript lines follow the expected markdown format."""
         ui.grill_question.return_value = "my custom answer"
+        questions = [
+            _question_json("Should dark mode persist across sessions?",
+                           "intent", "Yes, store in localStorage",
+                           "Critical for UX"),
+        ]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             result = await grill_node(_state(repo, project), ui)
 
-        lines = result["grill_transcript"].split("\n")
-        assert lines[0] == ("Q1 [intent]: Should dark mode persist across sessions?")
-        assert lines[1] == "  Recommended: Yes, store in localStorage"
-        assert lines[2] == "  Answer: my custom answer"
-        assert lines[3] == ""  # blank separator
+        transcript = result["grill_transcript"]
+        assert "### Q1 [intent]" in transcript
+        assert "**Should dark mode persist across sessions?**" in transcript
+        assert "Recommended: Yes, store in localStorage" in transcript
+        assert "**Answer:** my custom answer" in transcript
 
     async def test_decisions_list_populated(self, repo, project, ui):
-        """Decisions list has one entry per question with correct keys."""
+        """Decisions are reflected in the compile prompt."""
         ui.grill_question.return_value = "accepted"
+        questions = [
+            _question_json("Q1?", "intent", "rec1", "why1"),
+            _question_json("Q2?", "preference", "rec2", "why2"),
+        ]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             await grill_node(_state(repo, project), ui)
 
-        # The decisions are embedded in the compile prompt; verify via
-        # the transcript that all questions were processed
-        _, kwargs = mock_run.call_args
-        prompt = kwargs["user_prompt"]
-        assert "Q1 [intent]:" in prompt
-        assert "Q2 [preference]:" in prompt
+        # The compile call is the last one; check its prompt contains the Q&A
+        compile_call = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        assert len(compile_call) == 1
+        prompt = compile_call[0][1]["user_prompt"]
+        assert "Q1 [intent]" in prompt
+        assert "Q2 [preference]" in prompt
         assert "accepted" in prompt
 
-    async def test_mixed_dict_and_string_questions(self, repo, project, ui):
-        """Questions can be dicts or plain strings."""
-        mixed_questions = [
-            {
-                "question": "Use websockets?",
-                "category": "preference",
-                "recommended_answer": "Yes",
-            },
-            "Should we add logging?",
-        ]
-        state = _state(
-            repo,
-            project,
-            technical_assessment={"open_questions": mixed_questions},
-        )
-
+    async def test_done_signal_stops_conversation(self, repo, project, ui):
+        """Agent returning status=done stops the loop (no questions asked)."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
-            result = await grill_node(state, ui)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
+            result = await grill_node(_state(repo, project), ui)
 
-        # First call: dict question
-        first = ui.grill_question.call_args_list[0]
-        assert first == call("Use websockets?", "Yes", "preference", 1)
-
-        # Second call: string question → defaults
-        second = ui.grill_question.call_args_list[1]
-        assert second == call(
-            "Should we add logging?", "No recommendation", "intent", 2
-        )
-
-        transcript = result["grill_transcript"]
-        assert "Q1 [preference]: Use websockets?" in transcript
-        assert "Q2 [intent]: Should we add logging?" in transcript
-
-    async def test_empty_questions_list(self, repo, project, ui):
-        """When open_questions is empty AND _generate_questions returns [],
-        no questions are asked and transcript is empty."""
-        state = _state(repo, project, technical_assessment={"open_questions": []})
-
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            # _generate_questions also returns empty
-            _write_spec(repo)
-            await grill_node(state, ui)
-
-        # _generate_questions is called (open_questions is empty/falsy)
-        # but returns empty → no grill_question calls
-        # First call is _generate_questions agent, second is compile agent
         ui.grill_question.assert_not_called()
+        assert "Agent concluded after 0 questions" in result["grill_transcript"]
+
+    async def test_error_response_stops_conversation(self, repo, project, ui):
+        """Agent returning unparseable text stops the loop with error."""
+        call_idx = {"i": 0}
+
+        async def side_effect(**kwargs):
+            if kwargs.get("stage") == "grill_compile":
+                _write_spec(repo)
+                return FakeAgentResult()
+            call_idx["i"] += 1
+            if call_idx["i"] == 1:
+                return FakeAgentResult(text="not json at all")
+            return FakeAgentResult()
+
+        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = side_effect
+            await grill_node(_state(repo, project), ui)
+
+        ui.grill_question.assert_not_called()
+        ui.error.assert_called()
+
+    async def test_empty_question_stops_conversation(self, repo, project, ui):
+        """Agent returning a question with empty text stops the loop."""
+        empty_q = json.dumps({
+            "status": "question", "question": "", "category": "intent",
+            "recommended_answer": "rec", "why_asking": "why",
+        })
+        call_idx = {"i": 0}
+
+        async def side_effect(**kwargs):
+            if kwargs.get("stage") == "grill_compile":
+                _write_spec(repo)
+                return FakeAgentResult()
+            call_idx["i"] += 1
+            if call_idx["i"] == 1:
+                return FakeAgentResult(text=empty_q)
+            return FakeAgentResult()
+
+        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = side_effect
+            await grill_node(_state(repo, project), ui)
+
+        ui.grill_question.assert_not_called()
+        ui.error.assert_called()
+
+    async def test_user_done_triggers_early_exit(self, repo, project, ui):
+        """User typing 'done' triggers early exit with agent wrap-up."""
+        ui.grill_question.return_value = "done"
+        questions = [
+            _question_json("Q1?", "intent", "rec", "why"),
+        ]
+        wrap_up = _done_json(
+            summary="Wrapped up early",
+            assumptions=["User wants simple approach"],
+        )
+
+        call_idx = {"i": 0}
+
+        async def side_effect(**kwargs):
+            nonlocal call_idx
+            if kwargs.get("stage") == "grill_compile":
+                _write_spec(repo)
+                return FakeAgentResult()
+            call_idx["i"] += 1
+            if call_idx["i"] == 1:
+                return FakeAgentResult(text=questions[0])
+            # Second call is the wrap-up after user said "done"
+            return FakeAgentResult(text=wrap_up)
+
+        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = side_effect
+            result = await grill_node(_state(repo, project), ui)
+
+        assert "User ended conversation" in result["grill_transcript"]
 
 
 # ---------------------------------------------------------------------------
@@ -352,84 +565,102 @@ class TestGrillNodeCompileAgent:
     async def test_compile_agent_system_prompt(self, repo, project, ui):
         """run_agent receives COMPILE_SYSTEM_PROMPT."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(_state(repo, project), ui)
 
-        # Last call is the compile agent (or only call when questions exist)
-        compile_call = mock_run.call_args
-        _, kwargs = compile_call
-        assert kwargs["system_prompt"] is COMPILE_SYSTEM_PROMPT
+        compile_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        assert len(compile_calls) == 1
+        assert compile_calls[0][1]["system_prompt"] is COMPILE_SYSTEM_PROMPT
 
     async def test_compile_prompt_contains_feature(self, repo, project, ui):
         """Compile prompt includes the feature prompt."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(_state(repo, project), ui)
 
-        _, kwargs = mock_run.call_args
-        assert "FEATURE PROMPT: Add dark mode" in kwargs["user_prompt"]
+        compile_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        assert "FEATURE PROMPT: Add dark mode" in compile_calls[0][1]["user_prompt"]
 
     async def test_compile_prompt_contains_transcript(self, repo, project, ui):
         """Compile prompt includes the grill transcript."""
+        questions = [
+            _question_json("Q1?", "intent", "rec", "why"),
+        ]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             await grill_node(_state(repo, project), ui)
 
-        _, kwargs = mock_run.call_args
-        prompt = kwargs["user_prompt"]
-        assert "GRILL TRANSCRIPT:" in prompt
-        assert "Q1 [intent]:" in prompt
+        compile_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        prompt = compile_calls[0][1]["user_prompt"]
+        assert "CONVERSATION TRANSCRIPT:" in prompt
+        assert "Q1 [intent]" in prompt
 
     async def test_compile_prompt_contains_codebase_profile(self, repo, project, ui):
         """Compile prompt includes serialized codebase profile."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(_state(repo, project), ui)
 
-        _, kwargs = mock_run.call_args
-        prompt = kwargs["user_prompt"]
+        compile_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        prompt = compile_calls[0][1]["user_prompt"]
         assert "CODEBASE PROFILE:" in prompt
         assert "acme" in prompt
 
     async def test_compile_prompt_contains_constraints(self, repo, project, ui):
         """Compile prompt includes constraints when present."""
         state = _state(
-            repo,
-            project,
+            repo, project,
             constraints=["no external deps", "must be accessible"],
         )
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(state, ui)
 
-        _, kwargs = mock_run.call_args
-        prompt = kwargs["user_prompt"]
+        compile_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        prompt = compile_calls[0][1]["user_prompt"]
         assert "CONSTRAINTS: no external deps; must be accessible" in prompt
 
     async def test_compile_prompt_no_constraints(self, repo, project, ui):
         """With no constraints, prompt shows 'None'."""
         state = _state(repo, project, constraints=[])
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(state, ui)
 
-        _, kwargs = mock_run.call_args
-        assert "CONSTRAINTS: None" in kwargs["user_prompt"]
+        compile_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        assert "CONSTRAINTS: None" in compile_calls[0][1]["user_prompt"]
 
     async def test_compile_agent_kwargs(self, repo, project, ui):
         """run_agent compile call has correct stage, max_turns, tools."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(_state(repo, project), ui)
 
-        _, kwargs = mock_run.call_args
+        compile_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        kwargs = compile_calls[0][1]
         assert kwargs["stage"] == "grill_compile"
         assert kwargs["max_turns"] == 10
         assert kwargs["allowed_tools"] == ["Read", "Write", "Bash"]
@@ -439,12 +670,90 @@ class TestGrillNodeCompileAgent:
         """model from state is passed to the compile agent."""
         state = _state(repo, project, model="claude-sonnet-4-20250514")
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(state, ui)
 
-        _, kwargs = mock_run.call_args
-        assert kwargs["model"] == "claude-sonnet-4-20250514"
+        compile_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage") == "grill_compile"
+        ]
+        assert compile_calls[0][1]["model"] == "claude-sonnet-4-20250514"
+
+
+# ---------------------------------------------------------------------------
+# grill_node — conversation agent calls
+# ---------------------------------------------------------------------------
+
+
+class TestGrillNodeConversationAgent:
+    """Verify conversation agent (_ask_one_question) invocations."""
+
+    async def test_conversation_agent_system_prompt(self, repo, project, ui):
+        """Conversation agent receives CONVERSATION_SYSTEM_PROMPT."""
+        questions = [_question_json("Q?", "intent", "rec", "why")]
+        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
+            await grill_node(_state(repo, project), ui)
+
+        conv_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage", "").startswith("grill_q")
+        ]
+        assert len(conv_calls) >= 1
+        assert conv_calls[0][1]["system_prompt"] is CONVERSATION_SYSTEM_PROMPT
+
+    async def test_conversation_stage_numbered(self, repo, project, ui):
+        """Each conversation turn has stage grill_q{N}."""
+        questions = [
+            _question_json("Q1?", "intent", "r1", "w1"),
+            _question_json("Q2?", "scope", "r2", "w2"),
+        ]
+        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
+            await grill_node(_state(repo, project), ui)
+
+        conv_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage", "").startswith("grill_q")
+        ]
+        stages = [c[1]["stage"] for c in conv_calls]
+        assert "grill_q1" in stages
+        assert "grill_q2" in stages
+
+    async def test_conversation_uses_read_only_tools(self, repo, project, ui):
+        """Conversation agent only has Read tool access."""
+        questions = [_question_json("Q?", "intent", "rec", "why")]
+        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
+            await grill_node(_state(repo, project), ui)
+
+        conv_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage", "").startswith("grill_q")
+        ]
+        assert conv_calls[0][1]["allowed_tools"] == ["Read"]
+
+    async def test_model_forwarded_to_conversation(self, repo, project, ui):
+        """model from state is forwarded to conversation agent."""
+        state = _state(repo, project, model="claude-sonnet-4-20250514")
+        questions = [_question_json("Q?", "intent", "rec", "why")]
+        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
+            await grill_node(state, ui)
+
+        conv_calls = [
+            c for c in mock_run.call_args_list
+            if c[1].get("stage", "").startswith("grill_q")
+        ]
+        assert conv_calls[0][1]["model"] == "claude-sonnet-4-20250514"
 
 
 # ---------------------------------------------------------------------------
@@ -458,17 +767,21 @@ class TestGrillNodeSpecReading:
     async def test_valid_spec_parsed(self, repo, project, ui):
         """Valid JSON is parsed into the return dict."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             result = await grill_node(_state(repo, project), ui)
 
         assert result["feature_spec"] == SAMPLE_SPEC
 
     async def test_invalid_json_yields_empty_dict(self, repo, project, ui):
         """Invalid JSON → ui.error called, feature_spec is empty dict."""
+        async def side_effect(**kwargs):
+            if kwargs.get("stage") == "grill_compile":
+                (repo / "feature_spec.json").write_text("{broken json!!!")
+                return FakeAgentResult()
+            return FakeAgentResult(text=_done_json())
+
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            (repo / "feature_spec.json").write_text("{broken json!!!")
+            mock_run.side_effect = side_effect
             result = await grill_node(_state(repo, project), ui)
 
         ui.error.assert_called_once()
@@ -478,8 +791,8 @@ class TestGrillNodeSpecReading:
     async def test_missing_spec_file_yields_empty_dict(self, repo, project, ui):
         """When agent didn't write feature_spec.json, returns empty dict."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            # Don't write feature_spec.json
+            mock_run.side_effect = _make_conversation_side_effect([])
+            # Don't write feature_spec.json (no spec_repo)
             result = await grill_node(_state(repo, project), ui)
 
         assert result["feature_spec"] == {}
@@ -487,17 +800,21 @@ class TestGrillNodeSpecReading:
     async def test_spec_file_cleaned_after_reading(self, repo, project, ui):
         """feature_spec.json is unlinked from repo after reading."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(_state(repo, project), ui)
 
         assert not (repo / "feature_spec.json").exists()
 
     async def test_invalid_json_file_still_cleaned(self, repo, project, ui):
         """Even with invalid JSON, the file is still cleaned up."""
+        async def side_effect(**kwargs):
+            if kwargs.get("stage") == "grill_compile":
+                (repo / "feature_spec.json").write_text("NOT JSON {{{")
+                return FakeAgentResult()
+            return FakeAgentResult(text=_done_json())
+
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            (repo / "feature_spec.json").write_text("NOT JSON {{{")
+            mock_run.side_effect = side_effect
             await grill_node(_state(repo, project), ui)
 
         assert not (repo / "feature_spec.json").exists()
@@ -505,7 +822,7 @@ class TestGrillNodeSpecReading:
     async def test_missing_spec_file_no_cleanup_error(self, repo, project, ui):
         """When file doesn't exist, no unlink error occurs."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
+            mock_run.side_effect = _make_conversation_side_effect([])
             # Doesn't crash even though no file to clean up
             await grill_node(_state(repo, project), ui)
 
@@ -521,13 +838,18 @@ class TestGrillNodeResearchRedo:
     async def test_redo_true_triggers_info(self, repo, project, ui):
         """When spec has research_redo_needed: True, ui.info is called."""
         spec_with_redo = {**SAMPLE_SPEC, "research_redo_needed": True}
+
+        async def side_effect(**kwargs):
+            if kwargs.get("stage") == "grill_compile":
+                _write_spec(repo, spec_with_redo)
+                return FakeAgentResult()
+            return FakeAgentResult(text=_done_json())
+
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo, spec_with_redo)
+            mock_run.side_effect = side_effect
             result = await grill_node(_state(repo, project), ui)
 
         assert result["research_redo_needed"] is True
-        # Check that the redo info message was emitted
         redo_calls = [
             c
             for c in ui.info.call_args_list
@@ -538,13 +860,18 @@ class TestGrillNodeResearchRedo:
     async def test_redo_false_no_redo_message(self, repo, project, ui):
         """When spec has research_redo_needed: False, no redo message."""
         spec_no_redo = {**SAMPLE_SPEC, "research_redo_needed": False}
+
+        async def side_effect(**kwargs):
+            if kwargs.get("stage") == "grill_compile":
+                _write_spec(repo, spec_no_redo)
+                return FakeAgentResult()
+            return FakeAgentResult(text=_done_json())
+
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo, spec_no_redo)
+            mock_run.side_effect = side_effect
             result = await grill_node(_state(repo, project), ui)
 
         assert result["research_redo_needed"] is False
-        # The only info calls should be "Compiling..." — no redo message
         redo_calls = [
             c for c in ui.info.call_args_list if "looping back" in str(c).lower()
         ]
@@ -554,9 +881,15 @@ class TestGrillNodeResearchRedo:
         """When spec lacks research_redo_needed key, defaults to False."""
         spec_no_key = {k: v for k, v in SAMPLE_SPEC.items()}
         spec_no_key.pop("research_redo_needed", None)
+
+        async def side_effect(**kwargs):
+            if kwargs.get("stage") == "grill_compile":
+                _write_spec(repo, spec_no_key)
+                return FakeAgentResult()
+            return FakeAgentResult(text=_done_json())
+
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo, spec_no_key)
+            mock_run.side_effect = side_effect
             result = await grill_node(_state(repo, project), ui)
 
         assert result["research_redo_needed"] is False
@@ -564,7 +897,7 @@ class TestGrillNodeResearchRedo:
     async def test_empty_spec_redo_defaults_false(self, repo, project, ui):
         """Empty spec (missing file) → research_redo_needed is False."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
+            mock_run.side_effect = _make_conversation_side_effect([])
             result = await grill_node(_state(repo, project), ui)
 
         assert result["research_redo_needed"] is False
@@ -580,21 +913,22 @@ class TestGrillNodeArtifacts:
 
     async def test_grill_transcript_saved(self, repo, project, ui):
         """grill_transcript.md is saved to artifacts directory."""
+        questions = [_question_json("Q1?", "intent", "rec", "why")]
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             await grill_node(_state(repo, project), ui)
 
         art = project / "artifacts" / "grill_transcript.md"
         assert art.exists()
         content = art.read_text()
-        assert "Q1 [intent]:" in content
+        assert "Q1 [intent]" in content
 
     async def test_feature_spec_artifact_saved(self, repo, project, ui):
         """feature_spec.json is saved to artifacts directory."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect([], spec_repo=repo)
             await grill_node(_state(repo, project), ui)
 
         art = project / "artifacts" / "feature_spec.json"
@@ -605,7 +939,7 @@ class TestGrillNodeArtifacts:
     async def test_empty_spec_artifact_saved(self, repo, project, ui):
         """When spec file missing, empty dict artifact is saved."""
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
+            mock_run.side_effect = _make_conversation_side_effect([])
             await grill_node(_state(repo, project), ui)
 
         art = project / "artifacts" / "feature_spec.json"
@@ -615,9 +949,14 @@ class TestGrillNodeArtifacts:
 
     async def test_invalid_json_spec_saves_empty_artifact(self, repo, project, ui):
         """When spec has invalid JSON, empty dict artifact is saved."""
+        async def side_effect(**kwargs):
+            if kwargs.get("stage") == "grill_compile":
+                (repo / "feature_spec.json").write_text("{bad json")
+                return FakeAgentResult()
+            return FakeAgentResult(text=_done_json())
+
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            (repo / "feature_spec.json").write_text("{bad json")
+            mock_run.side_effect = side_effect
             await grill_node(_state(repo, project), ui)
 
         art = project / "artifacts" / "feature_spec.json"
@@ -626,217 +965,22 @@ class TestGrillNodeArtifacts:
 
 
 # ---------------------------------------------------------------------------
-# grill_node — fallthrough to _generate_questions
+# grill_node — auto_approve mode
 # ---------------------------------------------------------------------------
 
 
-class TestGrillNodeGenerateQuestionsFallthrough:
-    """When technical_assessment has no open_questions, generate them."""
+class TestGrillNodeAutoApprove:
+    """Verify auto_approve passes through to UI and conversation works."""
 
-    async def test_no_open_questions_triggers_generate(self, repo, project, ui):
-        """Empty open_questions triggers _generate_questions via agent."""
-        state = _state(repo, project, technical_assessment={"open_questions": []})
-
+    async def test_auto_approve_in_state(self, repo, project, ui):
+        """auto_approve flag from state is used by the node."""
+        questions = [_question_json("Q?", "intent", "rec", "why")]
+        state = _state(repo, project, auto_approve=True)
         with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
-            await grill_node(state, ui)
-
-        # ui.info called with "No open questions" message
-        first_info = ui.info.call_args_list[0]
-        assert "No open questions" in first_info[0][0]
-
-    async def test_missing_open_questions_key_triggers_generate(
-        self, repo, project, ui
-    ):
-        """Missing open_questions key triggers _generate_questions."""
-        state = _state(repo, project, technical_assessment={})
-
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            _write_spec(repo)
-            await grill_node(state, ui)
-
-        first_info = ui.info.call_args_list[0]
-        assert "No open questions" in first_info[0][0]
-
-    async def test_generate_questions_agent_called(self, repo, project, ui):
-        """When falling through, the generate agent is invoked first."""
-        generated = [
-            {
-                "question": "Generated Q?",
-                "category": "intent",
-                "recommended_answer": "Yes",
-            }
-        ]
-        state = _state(repo, project, technical_assessment={"open_questions": []})
-
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-
-            def side_effect(**kwargs):
-                if kwargs.get("stage") == "grill_generate":
-                    # Simulate agent writing open_questions.json
-                    (repo / "open_questions.json").write_text(json.dumps(generated))
-                return FakeAgentResult()
-
-            mock_run.side_effect = side_effect
-            _write_spec(repo)
+            mock_run.side_effect = _make_conversation_side_effect(
+                questions, spec_repo=repo,
+            )
             result = await grill_node(state, ui)
 
-        # Should have asked the generated question
-        ui.grill_question.assert_called_once_with("Generated Q?", "Yes", "intent", 1)
-        assert "Generated Q?" in result["grill_transcript"]
-
-
-# ---------------------------------------------------------------------------
-# _generate_questions
-# ---------------------------------------------------------------------------
-
-
-class TestGenerateQuestions:
-    """Tests for the _generate_questions helper."""
-
-    async def test_successful_generation(self, repo, project, ui):
-        """Agent writes valid open_questions.json → list returned."""
-        questions = [
-            {
-                "question": "Q1?",
-                "category": "intent",
-                "recommended_answer": "A1",
-            },
-            {
-                "question": "Q2?",
-                "category": "edge_case",
-                "recommended_answer": "A2",
-            },
-        ]
-
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-
-            async def write_questions(**kwargs):
-                (repo / "open_questions.json").write_text(json.dumps(questions))
-                return FakeAgentResult()
-
-            mock_run.side_effect = write_questions
-            result = await _generate_questions(
-                str(repo), str(project), "Add dark mode", {}, {}, ui, None
-            )
-
-        assert result == questions
-        assert len(result) == 2
-
-    async def test_invalid_json_returns_empty(self, repo, project, ui):
-        """Invalid JSON in open_questions.json → returns empty list."""
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-
-            async def write_bad_json(**kwargs):
-                (repo / "open_questions.json").write_text("NOT JSON {{{")
-                return FakeAgentResult()
-
-            mock_run.side_effect = write_bad_json
-            result = await _generate_questions(
-                str(repo), str(project), "Add dark mode", {}, {}, ui, None
-            )
-
-        assert result == []
-
-    async def test_missing_file_returns_empty(self, repo, project, ui):
-        """When agent doesn't write open_questions.json → empty list."""
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            result = await _generate_questions(
-                str(repo), str(project), "Add dark mode", {}, {}, ui, None
-            )
-
-        assert result == []
-
-    async def test_non_list_json_returns_empty(self, repo, project, ui):
-        """When JSON is valid but not a list → returns empty list."""
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-
-            async def write_dict(**kwargs):
-                (repo / "open_questions.json").write_text(json.dumps({"not": "a list"}))
-                return FakeAgentResult()
-
-            mock_run.side_effect = write_dict
-            result = await _generate_questions(
-                str(repo), str(project), "Add dark mode", {}, {}, ui, None
-            )
-
-        assert result == []
-
-    async def test_file_cleaned_after_reading(self, repo, project, ui):
-        """open_questions.json is unlinked after successful read."""
-        questions = [
-            {"question": "Q?", "category": "intent", "recommended_answer": "A"}
-        ]
-
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-
-            async def write_file(**kwargs):
-                (repo / "open_questions.json").write_text(json.dumps(questions))
-                return FakeAgentResult()
-
-            mock_run.side_effect = write_file
-            await _generate_questions(
-                str(repo), str(project), "Add dark mode", {}, {}, ui, None
-            )
-
-        assert not (repo / "open_questions.json").exists()
-
-    async def test_agent_called_with_correct_args(self, repo, project, ui):
-        """run_agent is called with expected kwargs."""
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            await _generate_questions(
-                str(repo),
-                str(project),
-                "Add dark mode",
-                {"lang": "python"},
-                {"edge_cases": ["timeout"]},
-                ui,
-                "claude-sonnet-4-20250514",
-            )
-
-        mock_run.assert_called_once()
-        _, kwargs = mock_run.call_args
-        assert kwargs["stage"] == "grill_generate"
-        assert kwargs["cwd"] == str(repo)
-        assert kwargs["project_dir"] == str(project)
-        assert kwargs["model"] == "claude-sonnet-4-20250514"
-        assert kwargs["max_turns"] == 10
-        assert "Glob" in kwargs["allowed_tools"]
-        assert "Grep" in kwargs["allowed_tools"]
-
-    async def test_prompt_contains_feature_and_context(self, repo, project, ui):
-        """Generate prompt includes feature, profile, and assessment."""
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            await _generate_questions(
-                str(repo),
-                str(project),
-                "Add SSO login",
-                {"lang": "typescript"},
-                {"edge_cases": ["session timeout"]},
-                ui,
-                None,
-            )
-
-        _, kwargs = mock_run.call_args
-        prompt = kwargs["user_prompt"]
-        assert "FEATURE: Add SSO login" in prompt
-        assert "CODEBASE PROFILE:" in prompt
-        assert "typescript" in prompt
-        assert "TECHNICAL ASSESSMENT:" in prompt
-        assert "session timeout" in prompt
-        assert "open_questions.json" in prompt
-
-    async def test_model_none_forwarded(self, repo, project, ui):
-        """When model is None, it is forwarded as-is to run_agent."""
-        with patch("graft.stages.grill.run_agent", new_callable=AsyncMock) as mock_run:
-            mock_run.return_value = FakeAgentResult()
-            await _generate_questions(str(repo), str(project), "feat", {}, {}, ui, None)
-
-        _, kwargs = mock_run.call_args
-        assert kwargs["model"] is None
+        assert result["grill_complete"] is True
+        ui.grill_question.assert_called_once()
