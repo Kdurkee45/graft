@@ -98,24 +98,36 @@ class UI:
         self._safe_print()
 
     def grill_question(
-        self, question: str, recommended: str, category: str, number: int
+        self,
+        question: str,
+        recommended: str,
+        category: str,
+        number: int,
+        why_asking: str = "",
     ) -> str:
         """Present a Grill question and return the human's answer."""
         self._safe_print()
+        body = f"[bold]{question}[/bold]\n"
+        if why_asking:
+            body += f"\n[italic dim]Why I'm asking: {why_asking}[/italic dim]\n"
+        body += f"\n[cyan]My recommendation:[/cyan] {recommended}"
         self._safe_print(
             Panel(
-                f"[bold]{question}[/bold]\n\n"
-                f"[dim]Category: {category}[/dim]\n"
-                f"[cyan]Recommended:[/cyan] {recommended}",
-                title=f"[bold magenta]Question {number}[/bold magenta]",
+                body,
+                title=f"[bold magenta]Grill ({number}/~25)[/bold magenta]",
                 border_style="magenta",
                 box=box.ROUNDED,
                 padding=(1, 2),
             )
         )
+
+        if getattr(self, "auto_approve", False):
+            self._safe_print(f"  [dim](auto-approve) Using recommended: {recommended}[/dim]")
+            return recommended
+
         try:
             response = self.console.input(
-                "  [bold]Your answer[/bold] [dim](Enter to accept recommended)[/dim]: "
+                "  [bold]Your answer[/bold] [dim](Enter to accept, 'done' to finish)[/dim]: "
             ).strip()
         except (EOFError, KeyboardInterrupt):
             response = ""
