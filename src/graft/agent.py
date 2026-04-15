@@ -15,6 +15,35 @@ from graft.ui import UI
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 2.0
 
+# Patterns in error messages that indicate a transient/retryable failure
+# (rate limits, CLI crashes, overloaded servers) vs. a real bug.
+_RETRYABLE_PATTERNS = (
+    "exit code",
+    "rate limit",
+    "rate_limit",
+    "429",
+    "overloaded",
+    "overload",
+    "capacity",
+    "too many requests",
+    "server error",
+    "internal error",
+    "connection reset",
+    "broken pipe",
+    "timed out",
+    "timeout",
+    "econnreset",
+    "socket hang up",
+    "503",
+    "529",
+)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Check if an exception looks like a transient failure worth retrying."""
+    msg = str(exc).lower()
+    return any(p in msg for p in _RETRYABLE_PATTERNS)
+
 
 @dataclass
 class AgentResult:
@@ -106,6 +135,19 @@ async def run_agent(
             ui.stage_log(
                 stage,
                 f"[yellow]Agent ({persona}) failed (attempt {attempt}/{MAX_RETRIES}): "
+                f"{exc}. Retrying in {delay:.0f}s…[/yellow]",
+            )
+            await asyncio.sleep(delay)
+
+        except Exception as exc:
+            if not _is_retryable(exc):
+                raise
+            last_error = exc
+            delay = RETRY_BACKOFF_BASE**attempt
+            ui.stage_log(
+                stage,
+                f"[yellow]Agent ({persona}) transient failure"
+                f" (attempt {attempt}/{MAX_RETRIES}): "
                 f"{exc}. Retrying in {delay:.0f}s…[/yellow]",
             )
             await asyncio.sleep(delay)
