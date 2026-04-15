@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from claude_agent_sdk import ClaudeAgentOptions, query
 
@@ -53,7 +54,7 @@ async def run_agent(
             "Grep",
         ]
 
-    opts = {
+    opts: dict[str, Any] = {
         "system_prompt": system_prompt,
         "cwd": cwd,
         "max_turns": max_turns,

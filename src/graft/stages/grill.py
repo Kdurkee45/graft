@@ -1,10 +1,14 @@
-"""Grill stage — structured interrogation to extract human intent.
+"""Grill stage — adaptive conversational interrogation for feature building.
 
-Walks through open questions from Research one at a time, with recommended
-answers. Compiles all decisions into a feature_spec.json that serves as
-the complete, unambiguous specification.
+A real-time conversation loop where the agent drives the interrogation,
+adapting each question based on the user's answers AND the codebase context
+from the Discover and Research stages. The agent asks one question at a time,
+digs deeper on vague answers, skips questions already answered by codebase
+analysis, and stops when it has enough context to plan the feature.
 
-This is the primary human touchpoint — efficient Q&A, not document writing.
+In auto-approve mode, the agent's recommended answer is used for every
+question. The conversation still adapts — recommendations are informed by
+codebase patterns and earlier answers.
 """
 
 from __future__ import annotations
@@ -18,15 +22,75 @@ from graft.stages._helpers import async_read_text, cleanup_artifacts, find_artif
 from graft.state import FeatureState
 from graft.ui import UI
 
+MAX_QUESTIONS = 25
+
+CONVERSATION_SYSTEM_PROMPT = """\
+You are a Principal Product Interrogator conducting a structured discovery
+conversation about a feature to add to an existing codebase. You have the
+codebase profile and technical assessment from prior analysis.
+
+Your goal: understand exactly what the human wants to build, how it should
+integrate with the existing codebase, and what the edge cases are.
+
+RULES:
+1. Ask ONE question at a time. Wait for the answer before asking the next.
+2. Every question MUST include a recommended_answer — your best guess
+   based on the codebase patterns, technical assessment, and what you've
+   heard so far.
+3. Adapt your questions to the user's answers AND the codebase context.
+   If the codebase uses Supabase, recommend Supabase patterns. If they
+   say "keep it simple," don't ask about complex integrations.
+4. Dig deeper when answers are vague. "It should notify users" → ask
+   about notification channels, triggers, frequency, opt-out.
+5. Skip questions when the codebase analysis already provides the answer.
+   If Discover found the auth pattern, don't ask "how should auth work?"
+6. Track what you know and what you don't. Stop when you have enough
+   to plan and build the feature confidently.
+7. Think in layers:
+   - Layer 1: Core intent, user-facing behavior, scope boundaries
+   - Layer 2: Data model changes, API surface, integration points
+   - Layer 3: Edge cases, error handling, UI specifics
+   You don't need Layer 3 for every aspect — only critical paths.
+8. Be conversational, not robotic. Acknowledge the user's answers.
+   Reference the codebase context when relevant ("Since the codebase
+   already uses X, I'd recommend...").
+
+RESPONSE FORMAT:
+You MUST respond with a single JSON object and nothing else.
+
+When you need to ask a question:
+{
+  "status": "question",
+  "question": "Your question here",
+  "category": "intent|scope|data_model|integration|
+              edge_case|preference|prioritization|
+              ui|api|auth|workflow",
+  "recommended_answer": "Your recommendation based on
+                         codebase patterns and conversation",
+  "why_asking": "Brief explanation of why this matters for the feature"
+}
+
+When you have enough context:
+{
+  "status": "done",
+  "summary": "Here's what I understand about the feature: ...",
+  "assumptions": ["Assumption 1 — filling a gap", "..."],
+  "confidence": "high|medium|low"
+}
+
+Do NOT ask more than 25 questions. Do NOT include text outside the JSON.
+"""
+
 COMPILE_SYSTEM_PROMPT = """\
 You are a Principal Product Architect. You have just completed a structured
-interrogation with a human about a feature they want to build.
+interrogation with a human about a feature they want to build on an existing
+codebase.
 
 You have:
 1. The original feature prompt
 2. A codebase profile (architecture, patterns, conventions)
 3. A technical assessment (reuse analysis, gaps, edge cases)
-4. A complete transcript of the Q&A session with all decisions
+4. A complete transcript of the adaptive Q&A session with all decisions
 
 Your job: compile everything into a definitive feature specification.
 
@@ -38,15 +102,20 @@ Write `feature_spec.json` to the working directory with this shape:
 {
   "feature_name": "Trade System",
   "feature_prompt": "original prompt...",
+  "summary": "one-paragraph description of what we're building",
   "decisions": [
     {
       "question": "...",
-      "recommended": "...",
       "answer": "...",
       "category": "intent|edge_case|preference|prioritization",
       "implications": ["needs timer UI", "needs cron job"]
     }
   ],
+  "assumptions": [
+    "Assumed X since user didn't specify",
+    "..."
+  ],
+  "confidence": "high|medium|low",
   "scope": {
     "mvp": ["item1", "item2"],
     "follow_up": ["item3", "item4"]
@@ -62,7 +131,7 @@ Write `feature_spec.json` to the working directory with this shape:
 }
 ```
 
-Be precise. Every decision must be documented. Every implication must be
+Be precise. Every decision must be documented. Every assumption must be
 noted. This spec drives the entire Plan and Execute stages — ambiguity
 here means bugs later.
 
@@ -70,8 +139,163 @@ Write the file to the current working directory.
 """
 
 
+def _parse_agent_response(text: str) -> dict[str, Any]:
+    """Extract JSON from the agent's response text."""
+    text = text.strip()
+    try:
+        result: dict[str, Any] = json.loads(text)
+        return result
+    except json.JSONDecodeError:
+        pass
+
+    for marker in ["```json", "```"]:
+        if marker in text:
+            start = text.index(marker) + len(marker)
+            end = text.index("```", start) if "```" in text[start:] else len(text)
+            try:
+                result = json.loads(text[start:end].strip())
+                return result
+            except json.JSONDecodeError:
+                pass
+
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        try:
+            result = json.loads(text[first_brace : last_brace + 1])
+            return result
+        except json.JSONDecodeError:
+            pass
+
+    return {"status": "error", "message": "Failed to parse agent response"}
+
+
+def _build_history_prompt(
+    feature_prompt: str,
+    codebase_profile: dict,
+    technical_assessment: dict,
+    constraints: list[str],
+    history: list[dict],
+) -> str:
+    """Build the prompt for the next conversation turn with full context."""
+    parts = [
+        f"FEATURE: {feature_prompt}",
+        f"\nCODEBASE PROFILE:\n{json.dumps(codebase_profile, indent=2)}",
+        f"\nTECHNICAL ASSESSMENT:\n{json.dumps(technical_assessment, indent=2)}",
+    ]
+    if constraints:
+        parts.append(f"\nCONSTRAINTS: {'; '.join(constraints)}")
+
+    if history:
+        parts.append("\nCONVERSATION SO FAR:")
+        for entry in history:
+            if entry["role"] == "agent":
+                data = entry["data"]
+                cat = data.get("category", "?")
+                q = data.get("question", "?")
+                parts.append(f"\nQ{entry['turn']} [{cat}]: {q}")
+                rec = data.get("recommended_answer", "?")
+                parts.append(f"  Recommended: {rec}")
+                why = data.get("why_asking", "?")
+                parts.append(f"  Why asked: {why}")
+            elif entry["role"] == "user":
+                parts.append(f"  User answered: {entry['answer']}")
+
+    parts.append(
+        "\nAsk your next question, or respond with"
+        " status 'done' if you have enough context."
+    )
+    return "\n".join(parts)
+
+
+async def _ask_one_question(
+    feature_prompt: str,
+    codebase_profile: dict,
+    technical_assessment: dict,
+    constraints: list[str],
+    history: list[dict],
+    repo_path: str,
+    project_dir: str,
+    ui: UI,
+    model: str | None,
+    turn: int,
+) -> dict:
+    """Run one conversation turn — agent produces the next question or done signal."""
+    prompt = _build_history_prompt(
+        feature_prompt,
+        codebase_profile,
+        technical_assessment,
+        constraints,
+        history,
+    )
+
+    result = await run_agent(
+        persona="Principal Product Interrogator",
+        system_prompt=CONVERSATION_SYSTEM_PROMPT,
+        user_prompt=prompt,
+        cwd=repo_path,
+        project_dir=project_dir,
+        stage=f"grill_q{turn}",
+        ui=ui,
+        model=model,
+        max_turns=3,
+        allowed_tools=["Read"],
+    )
+
+    return _parse_agent_response(result.text)
+
+
+def _append_assumptions(transcript_lines: list[str], assumptions: list[str]) -> None:
+    """Append assumption lines to transcript."""
+    if assumptions:
+        transcript_lines.append("")
+        transcript_lines.append("**Assumptions:**")
+        for a in assumptions:
+            transcript_lines.append(f"- {a}")
+
+
+def _handle_done_response(
+    response: dict,
+    turn: int,
+    transcript_lines: list[str],
+    ui: UI,
+) -> list[str]:
+    """Handle agent 'done' status — returns assumptions list."""
+    assumptions: list[str] = response.get("assumptions", [])
+    confidence: str = response.get("confidence", "medium")
+    transcript_lines.append(f"**Agent concluded after {turn - 1} questions.**")
+    transcript_lines.append("")
+    transcript_lines.append(f"**Summary:** {response.get('summary', '')}")
+    transcript_lines.append(f"**Confidence:** {confidence}")
+    _append_assumptions(transcript_lines, assumptions)
+    ui.info(f"Grill complete after {turn - 1} questions (confidence: {confidence}).")
+    return assumptions
+
+
+def _record_question_in_transcript(
+    transcript_lines: list[str],
+    turn: int,
+    category: str,
+    question: str,
+    why_asking: str,
+    recommended: str,
+    answer: str,
+) -> None:
+    """Append a Q&A exchange to the transcript."""
+    transcript_lines.append(f"### Q{turn} [{category}]")
+    transcript_lines.append("")
+    transcript_lines.append(f"**{question}**")
+    transcript_lines.append("")
+    transcript_lines.append(f"*Why I'm asking: {why_asking}*")
+    transcript_lines.append("")
+    transcript_lines.append(f"Recommended: {recommended}")
+    transcript_lines.append("")
+    transcript_lines.append(f"**Answer:** {answer}")
+    transcript_lines.append("")
+
+
 async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
-    """LangGraph node: interrogate the human for intent, preferences, edge cases."""
+    """LangGraph node: adaptive conversational interrogation."""
     ui.stage_start("grill")
     repo_path = state["repo_path"]
     project_dir = state["project_dir"]
@@ -79,66 +303,137 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     codebase_profile = state.get("codebase_profile", {})
     technical_assessment = state.get("technical_assessment", {})
     constraints = state.get("constraints", [])
+    auto_approve = state.get("auto_approve", False)
 
-    # Get open questions from Research
-    open_questions = technical_assessment.get("open_questions", [])
+    history: list[dict] = []
+    mode = "auto-approve" if auto_approve else "interactive"
+    transcript_lines: list[str] = [
+        "# Grill Transcript",
+        "",
+        f"**Feature:** {feature_prompt}",
+        f"**Mode:** {mode}",
+        "",
+        "---",
+        "",
+    ]
+    assumptions: list[str] = []
 
-    # If Research didn't produce questions, generate them via agent
-    if not open_questions:
-        ui.info(
-            "No open questions from Research — generating questions from context..."
-        )
-        open_questions = await _generate_questions(
-            repo_path,
-            project_dir,
+    for turn in range(1, MAX_QUESTIONS + 1):
+        response = await _ask_one_question(
             feature_prompt,
             codebase_profile,
             technical_assessment,
+            constraints,
+            history,
+            repo_path,
+            project_dir,
             ui,
             state.get("model"),
+            turn,
         )
 
-    # Walk through questions one at a time
-    transcript_lines: list[str] = []
-    decisions: list[dict] = []
+        if response.get("status") == "error":
+            ui.error(
+                "Grill agent returned unparseable response"
+                f" on turn {turn}. Wrapping up."
+            )
+            break
 
-    for i, q in enumerate(open_questions, 1):
-        question = q.get("question", q) if isinstance(q, dict) else str(q)
-        recommended = (
-            q.get("recommended_answer", "No recommendation")
-            if isinstance(q, dict)
-            else "No recommendation"
+        if response.get("status") == "done":
+            assumptions = _handle_done_response(response, turn, transcript_lines, ui)
+            break
+
+        question = response.get("question", "")
+        recommended = response.get("recommended_answer", "")
+        category = response.get("category", "intent")
+        why_asking = response.get("why_asking", "")
+
+        if not question:
+            ui.error(
+                f"Grill agent returned empty question on turn {turn}. Wrapping up."
+            )
+            break
+
+        answer = ui.grill_question(
+            question=question,
+            recommended=recommended,
+            category=category,
+            number=turn,
+            why_asking=why_asking,
         )
-        category = q.get("category", "intent") if isinstance(q, dict) else "intent"
 
-        answer = ui.grill_question(question, recommended, category, i)
+        if answer.lower() == "done":
+            ui.info(
+                "User requested early exit — agent will"
+                " fill remaining gaps with assumptions."
+            )
+            history.append({"role": "agent", "data": response, "turn": turn})
+            early_msg = (
+                "I'm done answering questions."
+                " Fill in any remaining gaps with"
+                " your best judgment and wrap up."
+            )
+            history.append({"role": "user", "answer": early_msg})
+            wrap_up = await _ask_one_question(
+                feature_prompt,
+                codebase_profile,
+                technical_assessment,
+                constraints,
+                history,
+                repo_path,
+                project_dir,
+                ui,
+                state.get("model"),
+                turn + 1,
+            )
+            if wrap_up.get("status") == "done":
+                assumptions = wrap_up.get("assumptions", [])
+            # Record the triggering question in transcript
+            _record_question_in_transcript(
+                transcript_lines,
+                turn,
+                category,
+                question,
+                why_asking,
+                recommended,
+                "(user ended early)",
+            )
+            transcript_lines.append(
+                f"**User ended conversation at Q{turn}. Agent filled gaps.**"
+            )
+            _append_assumptions(transcript_lines, assumptions)
+            break
 
-        transcript_lines.append(f"Q{i} [{category}]: {question}")
-        transcript_lines.append(f"  Recommended: {recommended}")
-        transcript_lines.append(f"  Answer: {answer}")
-        transcript_lines.append("")
+        history.append({"role": "agent", "data": response, "turn": turn})
+        history.append({"role": "user", "answer": answer})
 
-        decisions.append(
-            {
-                "question": question,
-                "recommended": recommended,
-                "answer": answer,
-                "category": category,
-            }
+        _record_question_in_transcript(
+            transcript_lines,
+            turn,
+            category,
+            question,
+            why_asking,
+            recommended,
+            answer,
         )
 
+    else:
+        # Loop exhausted MAX_QUESTIONS without agent saying "done"
+        transcript_lines.append(f"**Reached maximum {MAX_QUESTIONS} questions.**")
+        ui.info(f"Reached maximum {MAX_QUESTIONS} questions. Compiling spec.")
     grill_transcript = "\n".join(transcript_lines)
     save_artifact(project_dir, "grill_transcript.md", grill_transcript)
 
-    # Compile decisions into feature spec using an agent
-    ui.info("Compiling feature specification from decisions...")
+    # Compile decisions into feature spec
+    ui.info("Compiling feature specification from conversation...")
 
     compile_prompt = (
         f"Compile the feature specification.\n\n"
         f"FEATURE PROMPT: {feature_prompt}\n\n"
         f"CODEBASE PROFILE:\n{json.dumps(codebase_profile, indent=2)}\n\n"
         f"TECHNICAL ASSESSMENT:\n{json.dumps(technical_assessment, indent=2)}\n\n"
-        f"GRILL TRANSCRIPT:\n{grill_transcript}\n\n"
+        f"CONVERSATION TRANSCRIPT:\n{grill_transcript}\n\n"
+        f"ASSUMPTIONS:\n{json.dumps(assumptions, indent=2)}\n\n"
         f"CONSTRAINTS: {'; '.join(constraints) if constraints else 'None'}\n\n"
         f"Write feature_spec.json to the working directory."
     )
@@ -168,7 +463,6 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     save_artifact(project_dir, "feature_spec.json", json.dumps(feature_spec, indent=2))
     cleanup_artifacts(repo_path, repo_path, ["feature_spec.json"])
 
-    # Check if Research needs a redo (rare — only if a fundamental assumption was wrong)
     research_redo = feature_spec.get("research_redo_needed", False)
     if research_redo:
         ui.info(
@@ -192,56 +486,3 @@ def grill_router(state: FeatureState) -> str:
     if state.get("research_redo_needed", False):
         return "research"
     return "plan"
-
-
-async def _generate_questions(
-    repo_path: str,
-    project_dir: str,
-    feature_prompt: str,
-    codebase_profile: dict,
-    technical_assessment: dict,
-    ui: UI,
-    model: str | None,
-) -> list[dict]:
-    """Generate open questions when Research didn't produce them."""
-    gen_prompt = (
-        f"Generate focused questions for building this feature.\n\n"
-        f"FEATURE: {feature_prompt}\n\n"
-        f"CODEBASE PROFILE:\n{json.dumps(codebase_profile, indent=2)}\n\n"
-        f"TECHNICAL ASSESSMENT:\n{json.dumps(technical_assessment, indent=2)}\n\n"
-        f"Write a JSON file called `open_questions.json` with an array of objects, "
-        f"each having: question, category "
-        f"(intent/edge_case/preference/prioritization), "
-        f"and recommended_answer.\n\n"
-        f"Focus on questions that REQUIRE human intent — things the code can't answer. "
-        f"Provide a recommended answer for each. 5-15 questions is typical."
-    )
-
-    generate_system = (
-        "You are a Principal Product Interrogator. Generate focused questions "
-        "about a feature that require human intent to answer. Each question must "
-        "have a recommended answer based on codebase patterns and industry norms."
-    )
-
-    await run_agent(
-        persona="Principal Product Interrogator",
-        system_prompt=generate_system,
-        user_prompt=gen_prompt,
-        cwd=repo_path,
-        project_dir=project_dir,
-        stage="grill_generate",
-        ui=ui,
-        model=model,
-        max_turns=10,
-        allowed_tools=["Read", "Write", "Bash", "Glob", "Grep"],
-    )
-
-    questions_path = find_artifact("open_questions.json", repo_path, repo_path)
-    if questions_path.exists():
-        try:
-            questions = json.loads(await async_read_text(questions_path))
-            cleanup_artifacts(repo_path, repo_path, ["open_questions.json"])
-            return questions if isinstance(questions, list) else []
-        except json.JSONDecodeError:
-            pass
-    return []

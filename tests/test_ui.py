@@ -360,14 +360,24 @@ def test_show_artifact_exact_max_no_truncation(ui):
 
 def test_grill_question_returns_user_input(ui):
     """grill_question() returns the user's typed answer."""
+    ui.auto_approve = False
     ui._safe_print = MagicMock()
     ui.console.input = MagicMock(return_value="my custom answer")
     result = ui.grill_question("What color?", "blue", "design", 1)
     assert result == "my custom answer"
 
 
+def test_grill_question_auto_approve_returns_recommended(ui):
+    """grill_question() returns recommended when auto_approve is True."""
+    ui.auto_approve = True
+    ui._safe_print = MagicMock()
+    result = ui.grill_question("What color?", "blue", "design", 1)
+    assert result == "blue"
+
+
 def test_grill_question_empty_input_returns_recommended(ui):
     """grill_question() returns recommended when user hits Enter."""
+    ui.auto_approve = False
     ui._safe_print = MagicMock()
     ui.console.input = MagicMock(return_value="")
     result = ui.grill_question("What color?", "blue", "design", 1)
@@ -376,6 +386,7 @@ def test_grill_question_empty_input_returns_recommended(ui):
 
 def test_grill_question_whitespace_input_returns_recommended(ui):
     """grill_question() returns recommended when user enters only spaces."""
+    ui.auto_approve = False
     ui._safe_print = MagicMock()
     ui.console.input = MagicMock(return_value="   ")
     result = ui.grill_question("Q?", "default_ans", "cat", 2)
@@ -384,6 +395,7 @@ def test_grill_question_whitespace_input_returns_recommended(ui):
 
 def test_grill_question_eof_returns_recommended(ui):
     """grill_question() returns recommended on EOFError."""
+    ui.auto_approve = False
     ui._safe_print = MagicMock()
     ui.console.input = MagicMock(side_effect=EOFError)
     result = ui.grill_question("Q?", "fallback", "cat", 1)
@@ -392,6 +404,7 @@ def test_grill_question_eof_returns_recommended(ui):
 
 def test_grill_question_keyboard_interrupt_returns_recommended(ui):
     """grill_question() returns recommended on KeyboardInterrupt."""
+    ui.auto_approve = False
     ui._safe_print = MagicMock()
     ui.console.input = MagicMock(side_effect=KeyboardInterrupt)
     result = ui.grill_question("Q?", "fallback", "cat", 1)
@@ -399,9 +412,9 @@ def test_grill_question_keyboard_interrupt_returns_recommended(ui):
 
 
 def test_grill_question_renders_panel_with_question(ui):
-    """grill_question() renders a Panel containing the question."""
+    """grill_question() renders a Panel containing the question and recommendation."""
+    ui.auto_approve = True
     ui._safe_print = MagicMock()
-    ui.console.input = MagicMock(return_value="ans")
     ui.grill_question("Is it blue?", "yes", "colors", 3)
     # Find the Panel call
     panel_calls = [
@@ -412,14 +425,26 @@ def test_grill_question_renders_panel_with_question(ui):
     assert len(panel_calls) == 1
     panel = panel_calls[0]
     assert "Is it blue?" in panel.renderable
-    assert "colors" in panel.renderable
     assert "yes" in panel.renderable
+
+
+def test_grill_question_renders_why_asking(ui):
+    """grill_question() includes why_asking in the panel when provided."""
+    ui.auto_approve = True
+    ui._safe_print = MagicMock()
+    ui.grill_question("Q?", "rec", "cat", 1, why_asking="Need to know scope")
+    panel_calls = [
+        c[0][0]
+        for c in ui._safe_print.call_args_list
+        if c[0] and isinstance(c[0][0], Panel)
+    ]
+    assert "Need to know scope" in panel_calls[0].renderable
 
 
 def test_grill_question_panel_title_includes_number(ui):
     """grill_question() Panel title contains the question number."""
+    ui.auto_approve = True
     ui._safe_print = MagicMock()
-    ui.console.input = MagicMock(return_value="ans")
     ui.grill_question("Q?", "rec", "cat", 42)
     panel_calls = [
         c[0][0]
