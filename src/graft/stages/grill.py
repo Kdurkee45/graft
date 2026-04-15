@@ -261,8 +261,8 @@ def _handle_done_response(
     ui: UI,
 ) -> list[str]:
     """Handle agent 'done' status — returns assumptions list."""
-    assumptions = response.get("assumptions", [])
-    confidence = response.get("confidence", "medium")
+    assumptions: list[str] = response.get("assumptions", [])
+    confidence: str = response.get("confidence", "medium")
     transcript_lines.append(f"**Agent concluded after {turn - 1} questions.**")
     transcript_lines.append("")
     transcript_lines.append(f"**Summary:** {response.get('summary', '')}")
