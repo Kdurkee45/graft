@@ -62,8 +62,11 @@ When you need to ask a question:
 {
   "status": "question",
   "question": "Your question here",
-  "category": "intent|scope|data_model|integration|edge_case|preference|prioritization|ui|api|auth|workflow",
-  "recommended_answer": "Your recommendation based on codebase patterns and conversation",
+  "category": "intent|scope|data_model|integration|
+              edge_case|preference|prioritization|
+              ui|api|auth|workflow",
+  "recommended_answer": "Your recommendation based on
+                         codebase patterns and conversation",
   "why_asking": "Brief explanation of why this matters for the feature"
 }
 
@@ -136,11 +139,12 @@ Write the file to the current working directory.
 """
 
 
-def _parse_agent_response(text: str) -> dict:
+def _parse_agent_response(text: str) -> dict[str, Any]:
     """Extract JSON from the agent's response text."""
     text = text.strip()
     try:
-        return json.loads(text)
+        result: dict[str, Any] = json.loads(text)
+        return result
     except json.JSONDecodeError:
         pass
 
@@ -149,7 +153,8 @@ def _parse_agent_response(text: str) -> dict:
             start = text.index(marker) + len(marker)
             end = text.index("```", start) if "```" in text[start:] else len(text)
             try:
-                return json.loads(text[start:end].strip())
+                result = json.loads(text[start:end].strip())
+                return result
             except json.JSONDecodeError:
                 pass
 
@@ -157,7 +162,8 @@ def _parse_agent_response(text: str) -> dict:
     last_brace = text.rfind("}")
     if first_brace != -1 and last_brace > first_brace:
         try:
-            return json.loads(text[first_brace : last_brace + 1])
+            result = json.loads(text[first_brace : last_brace + 1])
+            return result
         except json.JSONDecodeError:
             pass
 
@@ -185,15 +191,20 @@ def _build_history_prompt(
         for entry in history:
             if entry["role"] == "agent":
                 data = entry["data"]
-                parts.append(
-                    f"\nQ{entry['turn']} [{data.get('category', '?')}]: {data.get('question', '?')}"
-                )
-                parts.append(f"  Recommended: {data.get('recommended_answer', '?')}")
-                parts.append(f"  Why asked: {data.get('why_asking', '?')}")
+                cat = data.get("category", "?")
+                q = data.get("question", "?")
+                parts.append(f"\nQ{entry['turn']} [{cat}]: {q}")
+                rec = data.get("recommended_answer", "?")
+                parts.append(f"  Recommended: {rec}")
+                why = data.get("why_asking", "?")
+                parts.append(f"  Why asked: {why}")
             elif entry["role"] == "user":
                 parts.append(f"  User answered: {entry['answer']}")
 
-    parts.append("\nAsk your next question, or respond with status 'done' if you have enough context.")
+    parts.append(
+        "\nAsk your next question, or respond with"
+        " status 'done' if you have enough context."
+    )
     return "\n".join(parts)
 
 
@@ -211,7 +222,11 @@ async def _ask_one_question(
 ) -> dict:
     """Run one conversation turn — agent produces the next question or done signal."""
     prompt = _build_history_prompt(
-        feature_prompt, codebase_profile, technical_assessment, constraints, history,
+        feature_prompt,
+        codebase_profile,
+        technical_assessment,
+        constraints,
+        history,
     )
 
     result = await run_agent(
@@ -230,6 +245,55 @@ async def _ask_one_question(
     return _parse_agent_response(result.text)
 
 
+def _append_assumptions(transcript_lines: list[str], assumptions: list[str]) -> None:
+    """Append assumption lines to transcript."""
+    if assumptions:
+        transcript_lines.append("")
+        transcript_lines.append("**Assumptions:**")
+        for a in assumptions:
+            transcript_lines.append(f"- {a}")
+
+
+def _handle_done_response(
+    response: dict,
+    turn: int,
+    transcript_lines: list[str],
+    ui: UI,
+) -> list[str]:
+    """Handle agent 'done' status — returns assumptions list."""
+    assumptions = response.get("assumptions", [])
+    confidence = response.get("confidence", "medium")
+    transcript_lines.append(f"**Agent concluded after {turn - 1} questions.**")
+    transcript_lines.append("")
+    transcript_lines.append(f"**Summary:** {response.get('summary', '')}")
+    transcript_lines.append(f"**Confidence:** {confidence}")
+    _append_assumptions(transcript_lines, assumptions)
+    ui.info(f"Grill complete after {turn - 1} questions (confidence: {confidence}).")
+    return assumptions
+
+
+def _record_question_in_transcript(
+    transcript_lines: list[str],
+    turn: int,
+    category: str,
+    question: str,
+    why_asking: str,
+    recommended: str,
+    answer: str,
+) -> None:
+    """Append a Q&A exchange to the transcript."""
+    transcript_lines.append(f"### Q{turn} [{category}]")
+    transcript_lines.append("")
+    transcript_lines.append(f"**{question}**")
+    transcript_lines.append("")
+    transcript_lines.append(f"*Why I'm asking: {why_asking}*")
+    transcript_lines.append("")
+    transcript_lines.append(f"Recommended: {recommended}")
+    transcript_lines.append("")
+    transcript_lines.append(f"**Answer:** {answer}")
+    transcript_lines.append("")
+
+
 async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     """LangGraph node: adaptive conversational interrogation."""
     ui.stage_start("grill")
@@ -242,41 +306,41 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
     auto_approve = state.get("auto_approve", False)
 
     history: list[dict] = []
+    mode = "auto-approve" if auto_approve else "interactive"
     transcript_lines: list[str] = [
         "# Grill Transcript",
         "",
         f"**Feature:** {feature_prompt}",
-        f"**Mode:** {'auto-approve' if auto_approve else 'interactive'}",
+        f"**Mode:** {mode}",
         "",
         "---",
         "",
     ]
-    decisions: list[dict] = []
     assumptions: list[str] = []
 
     for turn in range(1, MAX_QUESTIONS + 1):
         response = await _ask_one_question(
-            feature_prompt, codebase_profile, technical_assessment, constraints,
-            history, repo_path, project_dir, ui, state.get("model"), turn,
+            feature_prompt,
+            codebase_profile,
+            technical_assessment,
+            constraints,
+            history,
+            repo_path,
+            project_dir,
+            ui,
+            state.get("model"),
+            turn,
         )
 
         if response.get("status") == "error":
-            ui.error(f"Grill agent returned unparseable response on turn {turn}. Wrapping up.")
+            ui.error(
+                "Grill agent returned unparseable response"
+                f" on turn {turn}. Wrapping up."
+            )
             break
 
         if response.get("status") == "done":
-            assumptions = response.get("assumptions", [])
-            confidence = response.get("confidence", "medium")
-            transcript_lines.append(f"**Agent concluded after {turn - 1} questions.**")
-            transcript_lines.append(f"")
-            transcript_lines.append(f"**Summary:** {response.get('summary', '')}")
-            transcript_lines.append(f"**Confidence:** {confidence}")
-            if assumptions:
-                transcript_lines.append("")
-                transcript_lines.append("**Assumptions:**")
-                for a in assumptions:
-                    transcript_lines.append(f"- {a}")
-            ui.info(f"Grill complete after {turn - 1} questions (confidence: {confidence}).")
+            assumptions = _handle_done_response(response, turn, transcript_lines, ui)
             break
 
         question = response.get("question", "")
@@ -285,7 +349,9 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         why_asking = response.get("why_asking", "")
 
         if not question:
-            ui.error(f"Grill agent returned empty question on turn {turn}. Wrapping up.")
+            ui.error(
+                f"Grill agent returned empty question on turn {turn}. Wrapping up."
+            )
             break
 
         answer = ui.grill_question(
@@ -297,45 +363,64 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
         )
 
         if answer.lower() == "done":
-            ui.info("User requested early exit — agent will fill remaining gaps with assumptions.")
+            ui.info(
+                "User requested early exit — agent will"
+                " fill remaining gaps with assumptions."
+            )
             history.append({"role": "agent", "data": response, "turn": turn})
-            history.append({"role": "user", "answer": "I'm done answering questions. Fill in any remaining gaps with your best judgment and wrap up."})
+            early_msg = (
+                "I'm done answering questions."
+                " Fill in any remaining gaps with"
+                " your best judgment and wrap up."
+            )
+            history.append({"role": "user", "answer": early_msg})
             wrap_up = await _ask_one_question(
-                feature_prompt, codebase_profile, technical_assessment, constraints,
-                history, repo_path, project_dir, ui, state.get("model"), turn + 1,
+                feature_prompt,
+                codebase_profile,
+                technical_assessment,
+                constraints,
+                history,
+                repo_path,
+                project_dir,
+                ui,
+                state.get("model"),
+                turn + 1,
             )
             if wrap_up.get("status") == "done":
                 assumptions = wrap_up.get("assumptions", [])
-            transcript_lines.append(f"**User ended conversation at Q{turn}. Agent filled gaps.**")
-            if assumptions:
-                transcript_lines.append("")
-                transcript_lines.append("**Assumptions:**")
-                for a in assumptions:
-                    transcript_lines.append(f"- {a}")
+            # Record the triggering question in transcript
+            _record_question_in_transcript(
+                transcript_lines,
+                turn,
+                category,
+                question,
+                why_asking,
+                recommended,
+                "(user ended early)",
+            )
+            transcript_lines.append(
+                f"**User ended conversation at Q{turn}. Agent filled gaps.**"
+            )
+            _append_assumptions(transcript_lines, assumptions)
             break
 
         history.append({"role": "agent", "data": response, "turn": turn})
         history.append({"role": "user", "answer": answer})
 
-        transcript_lines.append(f"### Q{turn} [{category}]")
-        transcript_lines.append("")
-        transcript_lines.append(f"**{question}**")
-        transcript_lines.append("")
-        transcript_lines.append(f"*Why I'm asking: {why_asking}*")
-        transcript_lines.append("")
-        transcript_lines.append(f"Recommended: {recommended}")
-        transcript_lines.append("")
-        transcript_lines.append(f"**Answer:** {answer}")
-        transcript_lines.append("")
+        _record_question_in_transcript(
+            transcript_lines,
+            turn,
+            category,
+            question,
+            why_asking,
+            recommended,
+            answer,
+        )
 
-        decisions.append({
-            "question": question,
-            "recommended": recommended,
-            "answer": answer,
-            "category": category,
-            "why_asking": why_asking,
-        })
-
+    else:
+        # Loop exhausted MAX_QUESTIONS without agent saying "done"
+        transcript_lines.append(f"**Reached maximum {MAX_QUESTIONS} questions.**")
+        ui.info(f"Reached maximum {MAX_QUESTIONS} questions. Compiling spec.")
     grill_transcript = "\n".join(transcript_lines)
     save_artifact(project_dir, "grill_transcript.md", grill_transcript)
 
@@ -380,7 +465,9 @@ async def grill_node(state: FeatureState, ui: UI) -> dict[str, Any]:
 
     research_redo = feature_spec.get("research_redo_needed", False)
     if research_redo:
-        ui.info("Grill revealed a fundamental assumption change — looping back to Research.")
+        ui.info(
+            "Grill revealed a fundamental assumption change — looping back to Research."
+        )
 
     mark_stage_complete(project_dir, "grill")
     ui.stage_done("grill")

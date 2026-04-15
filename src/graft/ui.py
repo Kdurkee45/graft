@@ -122,12 +122,16 @@ class UI:
         )
 
         if getattr(self, "auto_approve", False):
-            self._safe_print(f"  [dim](auto-approve) Using recommended: {recommended}[/dim]")
+            self._safe_print(
+                f"  [dim](auto-approve) Using recommended: {recommended}[/dim]"
+            )
             return recommended
 
         try:
             response = self.console.input(
-                "  [bold]Your answer[/bold] [dim](Enter to accept, 'done' to finish)[/dim]: "
+                "  [bold]Your answer[/bold]"
+                " [dim](Enter to accept,"
+                " 'done' to finish)[/dim]: "
             ).strip()
         except (EOFError, KeyboardInterrupt):
             response = ""
