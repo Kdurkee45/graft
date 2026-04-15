@@ -10,6 +10,7 @@ from typing import Any
 from claude_agent_sdk import ClaudeAgentOptions, query
 
 from graft import artifacts
+from graft.guardrails import make_guardrail_hooks
 from graft.ui import UI
 
 MAX_RETRIES = 3
@@ -89,6 +90,9 @@ async def run_agent(
         "max_turns": max_turns,
         "allowed_tools": allowed_tools,
         "permission_mode": "bypassPermissions",
+        # Guardrails: block dangerous Bash commands (e.g., `find /` which hangs
+        # for 30+ minutes traversing the entire filesystem).
+        "hooks": make_guardrail_hooks(),
     }
     if model:
         opts["model"] = model
